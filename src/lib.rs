@@ -1,5 +1,6 @@
 #![feature(test)]
 mod lex;
+mod parse;
 
 #[derive(Debug)]
 pub struct Local<T> {

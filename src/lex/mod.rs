@@ -2,7 +2,8 @@ use std::{iter::Peekable, str::Chars};
 
 use crate::Local;
 mod token;
-use token::{Token, KEYWORDS};
+pub use token::Token;
+use token::KEYWORDS;
 mod error;
 
 #[derive(Clone)]
