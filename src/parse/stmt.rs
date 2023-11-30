@@ -1,6 +1,6 @@
 use super::expr::Expr;
 
-enum Stmt {
+pub enum Stmt {
     Expression(Expr),
     Print(Expr),
 }

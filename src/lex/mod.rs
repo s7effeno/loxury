@@ -1,6 +1,5 @@
 use std::{iter::Peekable, str::Chars};
 
-use crate::Local;
 mod token;
 pub use token::Token;
 use token::KEYWORDS;
@@ -92,16 +91,16 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn local<T>(&self, data: T) -> Local<T> {
-        Local::new(self.row, self.col, data)
+    fn local<T>(&self, data: T) -> (usize, usize, T) {
+        (self.row, self.col, data)
     }
 
     // TODO move these two methods to Token and Error
-    fn local_token(&self, token: Token) -> Local<Result<Token, ()>> {
+    fn local_token(&self, token: Token) -> (usize, usize, Result<Token, ()>) {
         self.local(Ok(token))
     }
 
-    fn local_err(&self, err: ()) -> Local<Result<Token, ()>> {
+    fn local_err(&self, err: ()) -> (usize, usize, Result<Token, ()>) {
         self.local(Err(err))
     }
 
@@ -114,7 +113,7 @@ impl<'a> Lexer<'a> {
 
 impl Iterator for Lexer<'_> {
     // TODO: change to error
-    type Item = Local<Result<Token, ()>>;
+    type Item = (usize, usize, Result<Token, ()>);
 
     fn next(&mut self) -> Option<Self::Item> {
         Some({
