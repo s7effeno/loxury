@@ -5,7 +5,7 @@ enum Literal {
     Number(f64),
 }
 
-enum Expr {
+pub enum Expr {
     Binary(Box<Expr>, Token, Box<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),
