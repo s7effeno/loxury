@@ -1,9 +1,10 @@
+use crate::Local;
 use std::{iter::Peekable, str::Chars};
 
 mod token;
+use crate::error::Syntax as SyntaxError;
 pub use token::Token;
 use token::KEYWORDS;
-mod error;
 
 #[derive(Clone)]
 struct Text<'a> {
@@ -91,16 +92,16 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn local<T>(&self, data: T) -> (usize, usize, T) {
-        (self.row, self.col, data)
+    fn local<T>(&self, data: T) -> Local<T> {
+        Local::new(self.row, self.col, data)
     }
 
     // TODO move these two methods to Token and Error
-    fn local_token(&self, token: Token) -> (usize, usize, Result<Token, ()>) {
+    fn local_token(&self, token: Token) -> Local<Result<Token, SyntaxError>> {
         self.local(Ok(token))
     }
 
-    fn local_err(&self, err: ()) -> (usize, usize, Result<Token, ()>) {
+    fn local_err(&self, err: SyntaxError) -> Local<Result<Token, SyntaxError>> {
         self.local(Err(err))
     }
 
@@ -113,7 +114,7 @@ impl<'a> Lexer<'a> {
 
 impl Iterator for Lexer<'_> {
     // TODO: change to error
-    type Item = (usize, usize, Result<Token, ()>);
+    type Item = Local<Result<Token, SyntaxError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some({
@@ -216,7 +217,7 @@ impl Iterator for Lexer<'_> {
                     if let Some('"') = self.source.next() {
                         self.local_token(Token::String(str))
                     } else {
-                        self.local_err(())
+                        self.local_err(SyntaxError::UnterminatedString)
                     }
                 }
                 c if c.is_numeric() => {
@@ -246,7 +247,10 @@ impl Iterator for Lexer<'_> {
                     self.source.next();
                     self.next()?
                 }
-                _ => self.local_err(()),
+                c => {
+                    let c = *c;
+                    self.local_err(SyntaxError::StrayCharacter(c))
+                }
             }
         })
     }
