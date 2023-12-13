@@ -51,13 +51,19 @@ mod error {
     pub enum Syntax {
         UnterminatedString,
         StrayCharacter(char),
+        ExpectedExpression,
+        UnclosedGrouping,
+        UnterminatedExprStatement,
     }
 
     impl Display for Syntax {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result {
             match self {
-                Self::UnterminatedString => write!(f, "missing terminating '\"' character"),
+                Self::UnterminatedString => write!(f, "expected '\"' at the end of string"),
                 Self::StrayCharacter(c) => write!(f, "stray {} in program", c),
+                Self::ExpectedExpression => write!(f, "expected expression"),
+                Self::UnclosedGrouping => write!(f, "expected ')' at the end of grouping expression"),
+                Self::UnterminatedExprStatement => write!(f, "expected ';' at the end of statement")
             }
         }
     }
