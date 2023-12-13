@@ -4,53 +4,58 @@ use std::iter::Peekable;
 
 use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
-use crate::Local;
+use crate::Located;
 use expr::{Expr, Literal};
 use stmt::Stmt;
 
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
-    errors: Vec<Local<SyntaxError>>,
+    errors: Vec<Located<SyntaxError>>,
 }
 
-impl Parser<'_> {
-    fn error(&mut self, error: Local<SyntaxError>) {
+impl<'a> Parser<'a> {
+    fn new(tokens: Lexer<'a>) -> Self {
+        Self {
+            tokens: tokens.peekable(),
+            errors: Vec::new(),
+        }
+    }
+
+    fn error(&mut self, error: Located<SyntaxError>) {
         self.errors.push(error);
     }
 
     // TODO: find better alternative to these three methods
-    fn next_token(&mut self) -> Option<Local<Token>> {
+    fn next_token(&mut self) -> Option<Located<Token>> {
         match self.tokens.next() {
-            Some(l) => match l.value() {
-                Ok(t) => Some(Local::new(l.row(), l.col(), t.clone())),
-                Err(e) => {
-                    self.error(Local::new(l.row(), l.col(), e.clone()));
-                    self.next_token()
-                }
-            },
+            Some(Ok(t)) => Some(t),
+            Some(Err(e)) => {
+                self.error(e);
+                self.next_token()
+            }
             None => None,
         }
     }
 
-    fn peek_token(&mut self) -> Option<Local<Token>> {
+    fn peek_token(&mut self) -> Option<Located<Token>> {
         let peek = self.tokens.peek().cloned();
         match peek {
-            Some(l) => match l.value() {
-                Ok(t) => Some(Local::new(l.row(), l.col(), t.clone())),
-                Err(e) => {
-                    let l = l.clone();
-                    self.error(Local::new(l.row(), l.col(), e.clone()));
-                    self.tokens.next();
-                    self.peek_token()
-                }
-            },
+            Some(Ok(t)) => Some(t),
+            Some(Err(e)) => {
+                self.error(e);
+                self.tokens.next();
+                self.peek_token()
+            }
             None => None,
         }
     }
 
-    fn next_token_if(&mut self, func: impl FnOnce(&Local<Token>) -> bool) -> Option<Local<Token>> {
+    fn next_token_if(
+        &mut self,
+        func: impl FnOnce(&Located<Token>) -> bool,
+    ) -> Option<Located<Token>> {
         self.peek_token().filter(|c| func(c)).map(|c| {
-            self.next();
+            self.next_token();
             c
         })
     }
@@ -70,7 +75,7 @@ impl Parser<'_> {
     fn expression_statement(&mut self) -> Stmt {
         let expr = self.expression();
         self.next_token_if(|t| matches!(t.value(), Token::Semicolon));
-        Stmt::Print(expr)
+        Stmt::Expression(expr)
     }
 
     fn expression(&mut self) -> Expr {
@@ -154,32 +159,46 @@ impl Parser<'_> {
 
     fn primary(&mut self) -> Expr {
         if let Some(token) = self.peek_token().map(|t| t.value().clone()) {
-            self.next_token();
             match token {
-                Token::False => Expr::Literal(Some(Literal::Boolean(false))),
-                Token::True => Expr::Literal(Some(Literal::Boolean(true))),
-                Token::Number(n) => Expr::Literal(Some(Literal::Number(n))),
-                Token::String(s) => Expr::Literal(Some(Literal::String(s))),
+                Token::False => {
+                    self.next_token();
+                    Expr::Literal(Some(Literal::Boolean(false)))
+                }
+                Token::True => {
+                    self.next_token();
+                    Expr::Literal(Some(Literal::Boolean(true)))
+                }
+                Token::Number(n) => {
+                    self.next_token();
+                    Expr::Literal(Some(Literal::Number(n)))
+                }
+                Token::String(s) => {
+                    self.next_token();
+                    Expr::Literal(Some(Literal::String(s)))
+                }
                 Token::LeftParen => {
+                    self.next_token();
                     let expr = self.expression();
                     if matches!(
                         self.peek_token().map(|t| t.value().clone()),
                         Some(Token::RightParen)
                     ) {
+                        self.next_token();
                         Expr::Grouping(Box::new(expr))
                     } else {
-                        panic!()
+                        panic!();
                     }
                 }
-                _ => todo!(),
+                _ => panic!(),
             }
         } else {
-            panic!()
+            panic!();
         }
     }
 
+    /*
     fn synchronyze(&mut self) {
-        /*while let Some((_, _, r)) = self.tokens.peek() {
+        while let Some((_, _, r)) = self.tokens.peek() {
             if let Ok(t) = r {
                 if let Token::Class
                 | Token::Fun
@@ -193,18 +212,27 @@ impl Parser<'_> {
                     break;
                 }
             }
-        } */
-    }
+        }
+    } */
 }
 
 impl Iterator for Parser<'_> {
     type Item = Stmt;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(_) = self.tokens.peek() {
-            Some(self.statement())
-        } else {
-            None
-        }
+        self.peek_token().map(|_| self.statement())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn asd() {
+        println!(
+            "{:?}",
+            Parser::new(Lexer::new("!!true and false or 5")).next()
+        );
     }
 }
