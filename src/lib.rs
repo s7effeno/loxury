@@ -3,7 +3,6 @@ mod lex;
 mod parse;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Result};
-use std::mem;
 
 #[derive(Clone)]
 pub struct Located<T> {

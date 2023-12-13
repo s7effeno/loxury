@@ -55,15 +55,15 @@ impl<'a> Parser<'a> {
         func: impl FnOnce(&Located<Token>) -> bool,
     ) -> Option<Located<Token>> {
         self.peek_token().filter(|c| func(c)).map(|c| {
-            self.next_token();
+            self.tokens.next();
             c
         })
     }
 
     fn statement(&mut self) -> Stmt {
         self.next_token_if(|t| matches!(t.value(), Token::Print))
-            .map(|_| self.print_statement());
-        self.expression_statement()
+            .map(|_| self.print_statement())
+            .unwrap_or_else(|| self.expression_statement())
     }
 
     fn print_statement(&mut self) -> Stmt {
@@ -161,59 +161,64 @@ impl<'a> Parser<'a> {
         if let Some(token) = self.peek_token().map(|t| t.value().clone()) {
             match token {
                 Token::False => {
-                    self.next_token();
+                    self.tokens.next();
                     Expr::Literal(Some(Literal::Boolean(false)))
                 }
                 Token::True => {
-                    self.next_token();
+                    self.tokens.next();
                     Expr::Literal(Some(Literal::Boolean(true)))
                 }
                 Token::Number(n) => {
-                    self.next_token();
+                    self.tokens.next();
                     Expr::Literal(Some(Literal::Number(n)))
                 }
                 Token::String(s) => {
-                    self.next_token();
+                    self.tokens.next();
                     Expr::Literal(Some(Literal::String(s)))
                 }
                 Token::LeftParen => {
-                    self.next_token();
+                    self.tokens.next();
                     let expr = self.expression();
                     if matches!(
                         self.peek_token().map(|t| t.value().clone()),
                         Some(Token::RightParen)
                     ) {
-                        self.next_token();
+                        self.tokens.next();
                         Expr::Grouping(Box::new(expr))
                     } else {
-                        panic!();
+                        panic!(
+                            "{}",
+                            format!(
+                                "expected ')', found {:?}",
+                                self.peek_token().map(|t| t.value().clone())
+                            )
+                        )
                     }
                 }
-                _ => panic!(),
+                _ => panic!("{}", format!("expected expression, got {:?}", token)),
             }
         } else {
-            panic!();
+            panic!("expected expression");
         }
     }
 
-    /*
     fn synchronyze(&mut self) {
-        while let Some((_, _, r)) = self.tokens.peek() {
-            if let Ok(t) = r {
-                if let Token::Class
-                | Token::Fun
-                | Token::Var
-                | Token::For
-                | Token::If
-                | Token::While
-                | Token::Print
-                | Token::Return = t
-                {
-                    break;
-                }
+        while let Some(t) = self.peek_token().map(|t| t.value().clone()) {
+            if let Token::Class
+            | Token::Fun
+            | Token::Var
+            | Token::For
+            | Token::If
+            | Token::While
+            | Token::Print
+            | Token::Return = t
+            {
+                break;
+            } else {
+                self.tokens.next();
             }
         }
-    } */
+    }
 }
 
 impl Iterator for Parser<'_> {
@@ -230,9 +235,6 @@ mod tests {
 
     #[test]
     fn asd() {
-        println!(
-            "{:?}",
-            Parser::new(Lexer::new("!!true and false or 5")).next()
-        );
+        println!("{:?}", Parser::new(Lexer::new("print (-5 * -6);")).next());
     }
 }
