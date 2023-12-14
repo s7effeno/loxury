@@ -5,23 +5,46 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Result};
 
 #[derive(Clone)]
+enum Position {
+    Coords(usize, usize),
+    Eof,
+}
+
+impl Display for Position {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            Self::Coords(row, col) => write!(f, "{}:{}", row, col),
+            Self::Eof => write!(f, "eof"),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Located<T> {
-    row: usize,
-    col: usize,
+    pos: Position,
     value: T,
 }
 
 impl<T> Located<T> {
-    pub fn new(row: usize, col: usize, value: T) -> Self {
-        Self { row, col, value }
+    pub fn at_coords(row: usize, col: usize, value: T) -> Self {
+        Self {
+            pos: Position::Coords(row, col),
+            value,
+        }
     }
 
-    pub fn row(&self) -> usize {
-        self.row
+    pub fn at_eof(value: T) -> Self {
+        Self {
+            pos: Position::Eof,
+            value,
+        }
     }
 
-    pub fn col(&self) -> usize {
-        self.col
+    pub fn co_locate<L>(&self, value: L) -> Located<L> {
+        Located {
+            pos: self.pos.clone(),
+            value,
+        }
     }
 
     pub fn value(&self) -> &T {
@@ -31,13 +54,13 @@ impl<T> Located<T> {
 
 impl<E: Error> Debug for Located<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{}:{}: {}", self.row, self.col, self.value)
+        write!(f, "{}: {:?}", self.pos, self.value)
     }
 }
 
 impl<E: Error> Display for Located<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        <Self as Debug>::fmt(&self, f)
+        write!(f, "{}: {}", self.pos, self.value)
     }
 }
 
@@ -62,8 +85,12 @@ mod error {
                 Self::UnterminatedString => write!(f, "expected '\"' at the end of string"),
                 Self::StrayCharacter(c) => write!(f, "stray {} in program", c),
                 Self::ExpectedExpression => write!(f, "expected expression"),
-                Self::UnclosedGrouping => write!(f, "expected ')' at the end of grouping expression"),
-                Self::UnterminatedExprStatement => write!(f, "expected ';' at the end of statement")
+                Self::UnclosedGrouping => {
+                    write!(f, "expected ')' at the end of grouping expression")
+                }
+                Self::UnterminatedExprStatement => {
+                    write!(f, "expected ';' at the end of statement")
+                }
             }
         }
     }

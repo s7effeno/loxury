@@ -93,7 +93,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn located<T>(&self, data: T) -> Located<T> {
-        Located::new(self.row, self.col, data)
+        Located::at_coords(self.row, self.col, data)
     }
 
     // TODO move these two methods to Token and Error
@@ -217,7 +217,7 @@ impl Iterator for Lexer<'_> {
                     if let Some('"') = self.source.next() {
                         self.local_token(Token::String(str))
                     } else {
-                        self.local_err(SyntaxError::UnterminatedString)
+                        Err(Located::at_eof(SyntaxError::UnterminatedString))
                     }
                 }
                 c if c.is_numeric() => {

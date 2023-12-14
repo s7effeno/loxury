@@ -68,14 +68,29 @@ impl<'a> Parser<'a> {
 
     fn print_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         let value = self.expression()?;
-        self.next_token_if(|t| matches!(t.value(), Token::Semicolon));
-        Ok(Stmt::Print(value))
+        match self.peek_token() {
+            Some(t) => self
+                .next_token_if(|t| matches!(t.value(), Token::Semicolon))
+                .map(|_| Ok(Stmt::Print(value)))
+                .unwrap_or_else(|| {
+                    Err(t.co_locate(SyntaxError::UnterminatedExprStatement))
+                }),
+            None => Err(Located::at_eof(SyntaxError::UnterminatedExprStatement)),
+        }
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         let expr = self.expression()?;
-        self.next_token_if(|t| matches!(t.value(), Token::Semicolon));
-        Ok(Stmt::Expression(expr))
+        match self.peek_token() {
+            Some(t) => self
+                .next_token_if(|t| matches!(t.value(), Token::Semicolon))
+                .map(|_| Ok(Stmt::Expression(expr)))
+                .unwrap_or_else(|| {
+                        Err(t.co_locate(
+                        SyntaxError::UnterminatedExprStatement))
+                }),
+            None => Err(Located::at_eof(SyntaxError::UnterminatedExprStatement)),
+        }
     }
 
     fn expression(&mut self) -> Result<Expr, Located<SyntaxError>> {
@@ -179,28 +194,20 @@ impl<'a> Parser<'a> {
                 Token::LeftParen => {
                     self.tokens.next();
                     let expr = self.expression()?;
-                    if matches!(
-                        self.peek_token().map(|t| t.value().clone()),
-                        Some(Token::RightParen)
-                    ) {
-                        self.tokens.next();
-                        Ok(Expr::Grouping(Box::new(expr)))
-                    } else {
-                        Err(Located::new(
-                            token.row(),
-                            token.col,
-                            SyntaxError::UnclosedGrouping,
-                        ))
+                    match self.peek_token() {
+                        Some(t) => self
+                            .next_token_if(|t| matches!(t.value(), Token::RightParen))
+                            .map(|_| Ok(Expr::Grouping(Box::new(expr))))
+                            .unwrap_or_else(|| {
+                                Err(t.co_locate(SyntaxError::UnclosedGrouping))
+                            }),
+                        None => Err(Located::at_eof(SyntaxError::UnclosedGrouping)),
                     }
                 }
-                _ => Err(Located::new(
-                    token.row(),
-                    token.col(),
-                    SyntaxError::ExpectedExpression,
-                )),
+                _ => Err(token.co_locate(SyntaxError::ExpectedExpression)),
             }
         } else {
-            unreachable!()
+            Err(Located::at_eof(SyntaxError::ExpectedExpression))
         }
     }
 
@@ -241,8 +248,8 @@ impl Iterator for Parser<'_> {
                     self.synchronyze();
                     self.next()
                 }
-            }
-            None => None
+            },
+            None => None,
         }
     }
 }
@@ -253,9 +260,10 @@ mod tests {
 
     #[test]
     fn asd() {
-        println!(
-            "{:?}",
-            Parser::new(Lexer::new("print (-5 * -6; print 7")).next()
-        );
+        let mut p = Parser::new(Lexer::new("print (6; + print 5;"));
+        println!("{:?}", p.next());
+        println!("{:?}", p.errors,);
+        p.next();
+        println!("{:?}", p.errors,);
     }
 }
