@@ -1,4 +1,5 @@
 #![feature(test)]
+mod interpret;
 mod lex;
 mod parse;
 use std::error::Error;

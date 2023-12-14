@@ -5,8 +5,8 @@ use std::iter::Peekable;
 use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
 use crate::Located;
-use expr::{Expr, Literal};
-use stmt::Stmt;
+pub use expr::{Expr, Literal};
+pub use stmt::Stmt;
 
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
@@ -72,9 +72,7 @@ impl<'a> Parser<'a> {
             Some(t) => self
                 .next_token_if(|t| matches!(t.value(), Token::Semicolon))
                 .map(|_| Ok(Stmt::Print(value)))
-                .unwrap_or_else(|| {
-                    Err(t.co_locate(SyntaxError::UnterminatedExprStatement))
-                }),
+                .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnterminatedExprStatement))),
             None => Err(Located::at_eof(SyntaxError::UnterminatedExprStatement)),
         }
     }
@@ -85,10 +83,7 @@ impl<'a> Parser<'a> {
             Some(t) => self
                 .next_token_if(|t| matches!(t.value(), Token::Semicolon))
                 .map(|_| Ok(Stmt::Expression(expr)))
-                .unwrap_or_else(|| {
-                        Err(t.co_locate(
-                        SyntaxError::UnterminatedExprStatement))
-                }),
+                .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnterminatedExprStatement))),
             None => Err(Located::at_eof(SyntaxError::UnterminatedExprStatement)),
         }
     }
@@ -198,9 +193,7 @@ impl<'a> Parser<'a> {
                         Some(t) => self
                             .next_token_if(|t| matches!(t.value(), Token::RightParen))
                             .map(|_| Ok(Expr::Grouping(Box::new(expr))))
-                            .unwrap_or_else(|| {
-                                Err(t.co_locate(SyntaxError::UnclosedGrouping))
-                            }),
+                            .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnclosedGrouping))),
                         None => Err(Located::at_eof(SyntaxError::UnclosedGrouping)),
                     }
                 }
@@ -260,7 +253,7 @@ mod tests {
 
     #[test]
     fn asd() {
-        let mut p = Parser::new(Lexer::new("print (6; + print 5;"));
+        let mut p = Parser::new(Lexer::new("print 6asdfsadf;"));
         println!("{:?}", p.next());
         println!("{:?}", p.errors,);
         p.next();
