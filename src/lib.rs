@@ -53,7 +53,7 @@ impl<T> Located<T> {
     }
 }
 
-impl<E: Error> Debug for Located<E> {
+impl<D: Debug> Debug for Located<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}: {:?}", self.pos, self.value)
     }
@@ -96,5 +96,22 @@ mod error {
         }
     }
 
-    impl Error for Syntax {}
+    #[derive(Debug, Clone)]
+    pub enum Runtime {
+        ExpectedNumbers,
+        ExpectedNumbersOrStrings,
+    }
+
+    impl Display for Runtime {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+            match self {
+                Self::ExpectedNumbers => write!(f, "operands must be numbers"),
+                Self::ExpectedNumbersOrStrings => {
+                    write!(f, "operands must be either all numbers or all strings")
+                }
+            }
+        }
+    }
+
+    impl Error for Runtime {}
 }

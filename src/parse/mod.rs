@@ -14,7 +14,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: Lexer<'a>) -> Self {
+    pub fn new(tokens: Lexer<'a>) -> Self {
         Self {
             tokens: tokens.peekable(),
             errors: Vec::new(),
@@ -95,13 +95,14 @@ impl<'a> Parser<'a> {
     fn equality(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.comparison()?;
 
-        while let Some(operator @ Token::BangEqual) | Some(operator @ Token::EqualEqual) =
-            self.peek_token().map(|t| t.value().clone())
-        {
-            let operator = operator.clone();
-            self.tokens.next();
-            let right = self.comparison()?;
-            expr = Expr::Binary(Box::new(expr), operator.clone(), Box::new(right))
+        while let Some(t) = self.peek_token() {
+            if let Token::BangEqual | Token::EqualEqual = t.value() {
+                self.tokens.next();
+                let right = self.comparison()?;
+                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
+            } else {
+                break;
+            }
         }
 
         Ok(expr)
@@ -110,15 +111,15 @@ impl<'a> Parser<'a> {
     fn comparison(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.term()?;
 
-        while let Some(operator @ Token::Greater)
-        | Some(operator @ Token::GreaterEqual)
-        | Some(operator @ Token::Less)
-        | Some(operator @ Token::LessEqual) = self.peek_token().map(|t| t.value().clone())
-        {
-            let operator = operator.clone();
-            self.tokens.next();
-            let right = self.term()?;
-            expr = Expr::Binary(Box::new(expr), operator.clone(), Box::new(right))
+        while let Some(t) = self.peek_token() {
+            if let Token::Greater | Token::GreaterEqual | Token::Less | Token::LessEqual = t.value()
+            {
+                self.tokens.next();
+                let right = self.term()?;
+                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
+            } else {
+                break;
+            }
         }
 
         Ok(expr)
@@ -127,13 +128,14 @@ impl<'a> Parser<'a> {
     fn term(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.factor()?;
 
-        while let Some(operator @ Token::Minus) | Some(operator @ Token::Plus) =
-            self.peek_token().map(|t| t.value().clone())
-        {
-            let operator = operator.clone();
-            self.tokens.next();
-            let right = self.factor()?;
-            expr = Expr::Binary(Box::new(expr), operator.clone(), Box::new(right))
+        while let Some(t) = self.peek_token() {
+            if let Token::Minus | Token::Plus = t.value() {
+                self.tokens.next();
+                let right = self.factor()?;
+                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
+            } else {
+                break;
+            }
         }
 
         Ok(expr)
@@ -142,29 +144,29 @@ impl<'a> Parser<'a> {
     fn factor(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.unary()?;
 
-        while let Some(operator @ Token::Slash) | Some(operator @ Token::Star) =
-            self.peek_token().map(|t| t.value().clone())
-        {
-            let operator = operator.clone();
-            self.tokens.next();
-            let right = self.unary()?;
-            expr = Expr::Binary(Box::new(expr), operator.clone(), Box::new(right))
+        while let Some(t) = self.peek_token() {
+            if let Token::Slash | Token::Star = t.value() {
+                self.tokens.next();
+                let right = self.unary()?;
+                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
+            } else {
+                break;
+            }
         }
 
         Ok(expr)
     }
 
     fn unary(&mut self) -> Result<Expr, Located<SyntaxError>> {
-        if let Some(operator @ Token::Bang) | Some(operator @ Token::Minus) =
-            self.peek_token().map(|t| t.value().clone())
-        {
-            let operator = operator.clone();
-            self.tokens.next();
-            let right = self.unary()?;
-            Ok(Expr::Unary(operator, Box::new(right)))
-        } else {
-            self.primary()
+        if let Some(t) = self.peek_token() {
+            if let Token::Bang | Token::Minus = t.value() {
+                self.tokens.next();
+                let right = self.unary()?;
+                return Ok(Expr::Unary(t.clone(), Box::new(right)));
+            }
         }
+
+        return self.primary();
     }
 
     fn primary(&mut self) -> Result<Expr, Located<SyntaxError>> {
@@ -172,19 +174,23 @@ impl<'a> Parser<'a> {
             match token.value() {
                 Token::False => {
                     self.tokens.next();
-                    Ok(Expr::Literal(Some(Literal::Boolean(false))))
+                    Ok(Expr::Literal(Literal::Boolean(false)))
                 }
                 Token::True => {
                     self.tokens.next();
-                    Ok(Expr::Literal(Some(Literal::Boolean(true))))
+                    Ok(Expr::Literal(Literal::Boolean(true)))
+                }
+                Token::Nil => {
+                    self.tokens.next();
+                    Ok(Expr::Literal(Literal::Nil))
                 }
                 Token::Number(n) => {
                     self.tokens.next();
-                    Ok(Expr::Literal(Some(Literal::Number(*n))))
+                    Ok(Expr::Literal(Literal::Number(*n)))
                 }
                 Token::String(s) => {
                     self.tokens.next();
-                    Ok(Expr::Literal(Some(Literal::String(s.to_owned()))))
+                    Ok(Expr::Literal(Literal::String(s.to_owned())))
                 }
                 Token::LeftParen => {
                     self.tokens.next();
