@@ -78,6 +78,7 @@ mod error {
         ExpectedExpression,
         UnclosedGrouping,
         UnterminatedExprStatement,
+        ExpectedVariableName,
     }
 
     impl Display for Syntax {
@@ -92,6 +93,7 @@ mod error {
                 Self::UnterminatedExprStatement => {
                     write!(f, "expected ';' at the end of statement")
                 }
+                Self::ExpectedVariableName => write!(f, "expected variable name"),
             }
         }
     }
@@ -100,6 +102,7 @@ mod error {
     pub enum Runtime {
         ExpectedNumbers,
         ExpectedNumbersOrStrings,
+        UndefinedVariable(String),
     }
 
     impl Display for Runtime {
@@ -108,6 +111,9 @@ mod error {
                 Self::ExpectedNumbers => write!(f, "operands must be numbers"),
                 Self::ExpectedNumbersOrStrings => {
                     write!(f, "operands must be either all numbers or all strings")
+                }
+                Self::UndefinedVariable(s) => {
+                    write!(f, "variable '{}' is not defined", s)
                 }
             }
         }

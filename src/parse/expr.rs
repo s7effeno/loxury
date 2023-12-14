@@ -2,7 +2,7 @@ use crate::lex::Token;
 use crate::Located;
 use std::fmt::{Display, Formatter, Result};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Literal {
     Boolean(bool),
     Number(f64),
@@ -27,4 +27,5 @@ pub enum Expr {
     Grouping(Box<Expr>),
     Literal(Literal),
     Unary(Located<Token>, Box<Expr>),
+    Variable(Located<String>),
 }

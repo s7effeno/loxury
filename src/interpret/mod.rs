@@ -3,6 +3,8 @@ use crate::lex::Token;
 use crate::parse::{Expr, Literal, Stmt};
 use crate::Located;
 
+mod environment;
+
 pub struct Interpreter;
 
 impl Interpreter {
@@ -109,6 +111,7 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
+            Expr::Variable(_) => todo!(),
         }
     }
 
@@ -121,6 +124,9 @@ impl Interpreter {
             Stmt::Expression(e) => {
                 Self::evaluate(e)?;
                 Ok(())
+            }
+            Stmt::Var(_, _) => {
+                todo!()
             }
         }
     }
