@@ -5,6 +5,18 @@ pub struct Interpreter;
 
 impl Interpreter {
     fn evaluate(expr: Expr) -> Option<Literal> {
+        fn is_equal(left: Option<Literal>, right: Option<Literal>) -> bool {
+            match (left, right) {
+                (None, None) => true,
+                (None, _) => false,
+                (_, None) => false,
+                (Some(Literal::Boolean(left)), Some(Literal::Boolean(right))) => left == right,
+                (Some(Literal::Number(left)), Some(Literal::Number(right))) => left == right,
+                (Some(Literal::String(left)), Some(Literal::String(right))) => left == right,
+                _ => false,
+            }
+        }
+
         match expr {
             Expr::Literal(e) => e,
             Expr::Grouping(e) => Self::evaluate(*e),
@@ -34,10 +46,43 @@ impl Interpreter {
                 let left = Self::evaluate(*l);
                 let right = Self::evaluate(*r);
                 match op {
+                    Token::Greater => {
+                        let Some(Literal::Number(left)) = left else { panic!() };
+                        let Some(Literal::Number(right)) = right else { panic!() };
+                        Some(Literal::Boolean(left > right))
+                    }
+                    Token::GreaterEqual => {
+                        let Some(Literal::Number(left)) = left else { panic!() };
+                        let Some(Literal::Number(right)) = right else { panic!() };
+                        Some(Literal::Boolean(left >= right))
+                    }
+                    Token::Less => {
+                        let Some(Literal::Number(left)) = left else { panic!() };
+                        let Some(Literal::Number(right)) = right else { panic!() };
+                        Some(Literal::Boolean(left < right))
+                    }
+                    Token::LessEqual => {
+                        let Some(Literal::Number(left)) = left else { panic!() };
+                        let Some(Literal::Number(right)) = right else { panic!() };
+                        Some(Literal::Boolean(left <= right))
+                    }
                     Token::Minus => {
                         let Some(Literal::Number(left)) = left else { panic!() };
                         let Some(Literal::Number(right)) = right else { panic!() };
                         Some(Literal::Number(left - right))
+                    }
+                    Token::BangEqual => {
+                        Some(Literal::Boolean(!is_equal(left, right)))
+                    }
+                    Token::EqualEqual => {
+                        Some(Literal::Boolean(is_equal(left, right)))
+                    }
+                    Token::Plus => {
+                        match (left, right) {
+                            (Some(Literal::Number(left)), Some(Literal::Number(right))) => Some(Literal::Number(left + right)),
+                            (Some(Literal::String(left)), Some(Literal::String(right))) => Some(Literal::String(left + &right)),
+                            _ => panic!(),
+                        }
                     }
                     Token::Slash => {
                         let Some(Literal::Number(left)) = left else { panic!() };
