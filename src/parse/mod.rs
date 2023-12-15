@@ -74,12 +74,12 @@ impl<'a> Parser<'a> {
                 let initializer = if let Some(t) = self.peek_token() {
                     if let Token::Equal = t.value() {
                         self.tokens.next();
-                        Some(self.expression()?)
+                        self.expression()?
                     } else {
-                        None
+                        Expr::Literal(Literal::Nil)
                     }
                 } else {
-                    None
+                    Expr::Literal(Literal::Nil)
                 };
 
                 if let Some(t) = self.peek_token() {

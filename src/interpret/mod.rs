@@ -4,16 +4,23 @@ use crate::parse::{Expr, Literal, Stmt};
 use crate::Located;
 
 mod environment;
+use environment::Environment;
 
-pub struct Interpreter;
+pub struct Interpreter {
+    environment: Environment,
+}
 
 impl Interpreter {
-    fn evaluate(expr: Expr) -> Result<Literal, Located<RuntimeError>> {
+    fn new() -> Self {
+        Self {
+            environment: Environment::new(),
+        }
+    }
+
+    fn evaluate(&self, expr: Expr) -> Result<Literal, Located<RuntimeError>> {
         fn is_equal(left: Literal, right: Literal) -> bool {
             match (left, right) {
                 (Literal::Nil, Literal::Nil) => true,
-                (Literal::Nil, _) => false,
-                (_, Literal::Nil) => false,
                 (Literal::Boolean(left), Literal::Boolean(right)) => left == right,
                 (Literal::Number(left), Literal::Number(right)) => left == right,
                 (Literal::String(left), Literal::String(right)) => left == right,
@@ -23,9 +30,9 @@ impl Interpreter {
 
         match expr {
             Expr::Literal(e) => Ok(e),
-            Expr::Grouping(e) => Self::evaluate(*e),
+            Expr::Grouping(e) => self.evaluate(*e),
             Expr::Unary(op, e) => {
-                let right = Self::evaluate(*e)?;
+                let right = self.evaluate(*e)?;
                 match op.value() {
                     Token::Minus => {
                         if let Literal::Number(n) = right {
@@ -45,8 +52,8 @@ impl Interpreter {
                 }
             }
             Expr::Binary(l, op, r) => {
-                let left = Self::evaluate(*l)?;
-                let right = Self::evaluate(*r)?;
+                let left = self.evaluate(*l)?;
+                let right = self.evaluate(*r)?;
                 match op.value() {
                     Token::Greater => {
                         if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
@@ -111,22 +118,24 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(_) => todo!(),
+            Expr::Variable(name) => self.environment.get(name),
         }
     }
 
-    fn execute(stmt: Stmt) -> Result<(), Located<RuntimeError>> {
+    fn execute(&mut self, stmt: Stmt) -> Result<(), Located<RuntimeError>> {
         match stmt {
             Stmt::Print(e) => {
-                println!("{}", Self::evaluate(e)?);
+                println!("{}", self.evaluate(e)?);
                 Ok(())
             }
             Stmt::Expression(e) => {
-                Self::evaluate(e)?;
+                self.evaluate(e)?;
                 Ok(())
             }
-            Stmt::Var(_, _) => {
-                todo!()
+            Stmt::Var(name, init) => {
+                self.environment
+                    .define(name.value().to_owned(), self.evaluate(init)?);
+                Ok(())
             }
         }
     }
@@ -141,12 +150,14 @@ mod tests {
     #[test]
     fn fooasd() {
         let mut p = Parser::new(Lexer::new(
-            "print 3 + 4; print 2 / 3; print true; print \"foo\" + \"bar\";",
+            // "print 3 + 4; print 2 / 3; print true; print \"foo\" + \"bar\";",
+            "var a = 5; print a",
         ));
+        let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
-        Interpreter::execute(p.next().unwrap());
-        Interpreter::execute(p.next().unwrap());
-        Interpreter::execute(p.next().unwrap());
-        Interpreter::execute(p.next().unwrap());
+        i.execute(p.next().unwrap());
+        // i.execute(p.next().unwrap());
+        // i.execute(p.next().unwrap());
+        // i.execute(p.next().unwrap());
     }
 }

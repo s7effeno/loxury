@@ -3,7 +3,7 @@ use crate::parse::Literal;
 use crate::Located;
 use std::collections::HashMap;
 
-struct Environment {
+pub struct Environment {
     values: HashMap<String, Literal>,
 }
 
@@ -14,14 +14,14 @@ impl Environment {
         }
     }
 
-    fn define(&mut self, name: String, value: Literal) {
+    pub fn define(&mut self, name: String, value: Literal) {
         self.values.insert(name, value);
     }
 
-    fn get(&mut self, name: Located<String>) -> Result<Literal, RuntimeError> {
+    pub fn get(&self, name: Located<String>) -> Result<Literal, Located<RuntimeError>> {
         self.values
             .get(name.value())
             .map(|l| Ok(l.clone()))
-            .unwrap_or_else(|| Err(RuntimeError::UndefinedVariable(name.value().clone())))
+            .unwrap_or_else(|| Err(name.co_locate(RuntimeError::UndefinedVariable(name.value().clone()))))
     }
 }
