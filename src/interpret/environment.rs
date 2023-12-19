@@ -18,10 +18,16 @@ impl Environment {
         self.values.insert(name, value);
     }
 
+    pub fn assign(&mut self, name: String, value: Literal) -> Result<(), ()> {
+        self.values.insert(name, value).ok_or(()).err().ok_or(())
+    }
+
     pub fn get(&self, name: Located<String>) -> Result<Literal, Located<RuntimeError>> {
         self.values
             .get(name.value())
             .map(|l| Ok(l.clone()))
-            .unwrap_or_else(|| Err(name.co_locate(RuntimeError::UndefinedVariable(name.value().clone()))))
+            .unwrap_or_else(|| {
+                Err(name.co_locate(RuntimeError::UndefinedVariable(name.value().clone())))
+            })
     }
 }

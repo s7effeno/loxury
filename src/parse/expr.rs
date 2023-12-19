@@ -16,13 +16,14 @@ impl Display for Literal {
             Self::Boolean(v) => write!(f, "{}", v),
             Self::Number(v) => write!(f, "{}", v),
             Self::String(v) => write!(f, "{}", v),
-            Self::Nil => write!(f, "null"),
+            Self::Nil => write!(f, "nil"),
         }
     }
 }
 
 #[derive(Debug)]
 pub enum Expr {
+    Assign(Located<String>, Box<Expr>),
     Binary(Box<Expr>, Located<Token>, Box<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),

@@ -79,6 +79,7 @@ mod error {
         UnclosedGrouping,
         UnterminatedExprStatement,
         ExpectedVariableName,
+        InvalidAssignmentTarget,
     }
 
     impl Display for Syntax {
@@ -94,6 +95,7 @@ mod error {
                     write!(f, "expected ';' at the end of statement")
                 }
                 Self::ExpectedVariableName => write!(f, "expected variable name"),
+                Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
             }
         }
     }

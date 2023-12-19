@@ -66,6 +66,7 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.statement())
     }
 
+    // TODO: write this shit better
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         if let Some(t) = self.peek_token() {
             if let Token::Identifier(i) = t.value() {
@@ -74,12 +75,12 @@ impl<'a> Parser<'a> {
                 let initializer = if let Some(t) = self.peek_token() {
                     if let Token::Equal = t.value() {
                         self.tokens.next();
-                        self.expression()?
+                        Some(self.expression()?)
                     } else {
-                        Expr::Literal(Literal::Nil)
+                        None
                     }
                 } else {
-                    Expr::Literal(Literal::Nil)
+                    None
                 };
 
                 if let Some(t) = self.peek_token() {
@@ -129,7 +130,22 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self) -> Result<Expr, Located<SyntaxError>> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr, Located<SyntaxError>> {
+        let expr = self.equality()?;
+
+        if let Some(t) = self.next_token_if(|t| matches!(t.value(), Token::Equal)) {
+            let value = self.assignment()?;
+            if let Expr::Variable(name) = expr {
+                Ok(Expr::Assign(name, Box::new(value)))
+            } else {
+                Err(t.co_locate(SyntaxError::InvalidAssignmentTarget))
+            }
+        } else {
+            Ok(expr)
+        }
     }
 
     fn equality(&mut self) -> Result<Expr, Located<SyntaxError>> {
@@ -206,7 +222,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        return self.primary();
+        self.primary()
     }
 
     fn primary(&mut self) -> Result<Expr, Located<SyntaxError>> {

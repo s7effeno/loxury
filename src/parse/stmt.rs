@@ -6,5 +6,5 @@ use crate::Located;
 pub enum Stmt {
     Expression(Expr),
     Print(Expr),
-    Var(Located<String>, Expr),
+    Var(Located<String>, Option<Expr>),
 }

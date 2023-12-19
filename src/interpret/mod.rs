@@ -119,6 +119,11 @@ impl Interpreter {
                 }
             }
             Expr::Variable(name) => self.environment.get(name),
+            Expr::Assign(name, value) => {
+                let value = self.evaluate(*value)?;
+                self.environment.assign(name.value(), value).map(|_| value).map_err(|_| RuntimeError::UndefinedVariable)
+                // self.environment.assign(name.value().to_owned(), self.evaluate(*value)?).map
+            }
         }
     }
 
@@ -133,8 +138,10 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Var(name, init) => {
-                self.environment
-                    .define(name.value().to_owned(), self.evaluate(init)?);
+                self.environment.define(
+                    name.value().to_owned(),
+                    self.evaluate(init.unwrap_or(Expr::Literal(Literal::Nil)))?,
+                );
                 Ok(())
             }
         }
@@ -151,12 +158,12 @@ mod tests {
     fn fooasd() {
         let mut p = Parser::new(Lexer::new(
             // "print 3 + 4; print 2 / 3; print true; print \"foo\" + \"bar\";",
-            "var a = 5; print a",
+            "var a; print a;",
         ));
         let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
         i.execute(p.next().unwrap());
-        // i.execute(p.next().unwrap());
+        i.execute(p.next().unwrap());
         // i.execute(p.next().unwrap());
         // i.execute(p.next().unwrap());
     }
