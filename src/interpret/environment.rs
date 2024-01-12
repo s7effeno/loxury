@@ -19,7 +19,7 @@ impl Environment {
     }
 
     pub fn assign(&mut self, name: String, value: Literal) -> Result<(), ()> {
-        self.values.insert(name, value).ok_or(()).err().ok_or(())
+        self.values.get_mut(&name).map(|v| *v = value).ok_or(())
     }
 
     pub fn get(&self, name: Located<String>) -> Result<Literal, Located<RuntimeError>> {

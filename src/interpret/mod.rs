@@ -17,7 +17,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate(&self, expr: Expr) -> Result<Literal, Located<RuntimeError>> {
+    fn evaluate(&mut self, expr: Expr) -> Result<Literal, Located<RuntimeError>> {
         fn is_equal(left: Literal, right: Literal) -> bool {
             match (left, right) {
                 (Literal::Nil, Literal::Nil) => true,
@@ -121,7 +121,12 @@ impl Interpreter {
             Expr::Variable(name) => self.environment.get(name),
             Expr::Assign(name, value) => {
                 let value = self.evaluate(*value)?;
-                self.environment.assign(name.value(), value).map(|_| value).map_err(|_| RuntimeError::UndefinedVariable)
+                self.environment
+                    .assign(name.value().to_owned(), value.clone())
+                    .map(|_| value)
+                    .map_err(|_| {
+                        name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+                    })
                 // self.environment.assign(name.value().to_owned(), self.evaluate(*value)?).map
             }
         }
@@ -138,10 +143,8 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Var(name, init) => {
-                self.environment.define(
-                    name.value().to_owned(),
-                    self.evaluate(init.unwrap_or(Expr::Literal(Literal::Nil)))?,
-                );
+                let init = self.evaluate(init.unwrap_or(Expr::Literal(Literal::Nil)))?;
+                self.environment.define(name.value().to_owned(), init);
                 Ok(())
             }
         }
@@ -158,13 +161,15 @@ mod tests {
     fn fooasd() {
         let mut p = Parser::new(Lexer::new(
             // "print 3 + 4; print 2 / 3; print true; print \"foo\" + \"bar\";",
-            "var a; print a;",
+            "var a = 5; print a; a = 7; print a; b = 6; print b;"
         ));
         let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
-        i.execute(p.next().unwrap());
-        i.execute(p.next().unwrap());
-        // i.execute(p.next().unwrap());
-        // i.execute(p.next().unwrap());
+        println!("{:?}", i.execute(p.next().unwrap()));
+        println!("{:?}", i.execute(p.next().unwrap()));
+        println!("{:?}", i.execute(p.next().unwrap()));
+        println!("{:?}", i.execute(p.next().unwrap()));
+        println!("{:?}", i.execute(p.next().unwrap()));
+        println!("{:?}", i.execute(p.next().unwrap()));
     }
 }
