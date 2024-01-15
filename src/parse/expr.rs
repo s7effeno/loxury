@@ -27,6 +27,7 @@ pub enum Expr {
     Binary(Box<Expr>, Located<Token>, Box<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),
+    Logical(Box<Expr>, Located<Token>, Box<Expr>),
     Unary(Located<Token>, Box<Expr>),
     Variable(Located<String>),
 }

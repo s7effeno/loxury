@@ -104,6 +104,10 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         match self.peek_token() {
             Some(t) => match t.value() {
+                Token::If => {
+                    self.tokens.next();
+                    self.if_statement()
+                }
                 Token::Print => {
                     self.tokens.next();
                     self.print_statement()
@@ -116,6 +120,45 @@ impl<'a> Parser<'a> {
             },
             None => self.expression_statement(),
         }
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
+        let condition = if let Some(t) = self.peek_token() {
+            if let Token::LeftParen = t.value() {
+                self.tokens.next();
+                self.expression()
+            } else {
+                Err(t.co_locate(SyntaxError::ExpectedControlExpression))
+            }
+        } else {
+            Err(Located::at_eof(SyntaxError::ExpectedControlExpression))
+        }?;
+        if let Some(t) = self.peek_token() {
+            if let Token::RightParen = t.value() {
+                self.tokens.next();
+                Ok(())
+            } else {
+                Err(t.co_locate(SyntaxError::UnterminatedControlExpression))
+            }
+        } else {
+            Err(Located::at_eof(SyntaxError::UnterminatedControlExpression))
+        }?;
+        let branch_then = self.statement()?;
+        let branch_else = if let Some(t) = self.peek_token() {
+            if let Token::Else = t.value() {
+                self.tokens.next();
+                Some(self.statement()?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Ok(Stmt::If(
+            condition,
+            Box::new(branch_then),
+            branch_else.map(Box::new),
+        ))
     }
 
     fn print_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -165,7 +208,7 @@ impl<'a> Parser<'a> {
     }
 
     fn assignment(&mut self) -> Result<Expr, Located<SyntaxError>> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
 
         if let Some(t) = self.next_token_if(|t| matches!(t.value(), Token::Equal)) {
             let value = self.assignment()?;
@@ -177,6 +220,40 @@ impl<'a> Parser<'a> {
         } else {
             Ok(expr)
         }
+    }
+
+    fn or(&mut self) -> Result<Expr, Located<SyntaxError>> {
+        let mut expr = self.and()?;
+
+        while let Some(t) = self.peek_token() {
+            if let Token::Or = t.value() {
+                let operator = t.clone();
+                self.tokens.next();
+                let right = self.and()?;
+                expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<Expr, Located<SyntaxError>> {
+        let mut expr = self.equality()?;
+
+        while let Some(t) = self.peek_token() {
+            if let Token::And = t.value() {
+                let operator = t.clone();
+                self.tokens.next();
+                let right = self.equality()?;
+                expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Expr, Located<SyntaxError>> {

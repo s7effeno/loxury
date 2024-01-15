@@ -7,4 +7,5 @@ pub enum Stmt {
     Expression(Expr),
     Print(Expr),
     Var(Located<String>, Option<Expr>),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),
 }

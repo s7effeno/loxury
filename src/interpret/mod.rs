@@ -17,6 +17,14 @@ impl Interpreter {
         }
     }
 
+    fn is_truthy(val: Literal) -> bool {
+        match val {
+            Literal::Nil => false,
+            Literal::Boolean(b) => b,
+            _ => true,
+        }
+    }
+
     fn evaluate(&mut self, expr: Expr) -> Result<Literal, Located<RuntimeError>> {
         fn is_equal(left: Literal, right: Literal) -> bool {
             match (left, right) {
@@ -41,13 +49,7 @@ impl Interpreter {
                             panic!();
                         }
                     }
-                    Token::Bang => Ok(Literal::Boolean({
-                        match right {
-                            Literal::Nil => false,
-                            Literal::Boolean(b) => b,
-                            _ => true,
-                        }
-                    })),
+                    Token::Bang => Ok(Literal::Boolean({ !Self::is_truthy(right) })),
                     _ => unreachable!(),
                 }
             }
@@ -134,6 +136,20 @@ impl Interpreter {
                         name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
                     })
             }
+            Expr::Logical(l, op, r) => {
+                let left = self.evaluate(*l)?;
+                if let Token::Or = op.value() {
+                    if Self::is_truthy(left.clone()) {
+                        return Ok(left);
+                    }
+                } else {
+                    if !Self::is_truthy(left.clone()) {
+                        return Ok(left);
+                    }
+                }
+
+                self.evaluate(*r)
+            }
         }
     }
 
@@ -163,6 +179,18 @@ impl Interpreter {
                     .expect("no enclosing scope to revert to");
                 Ok(())
             }
+            Stmt::If(cond, branch_then, branch_else) => {
+                if Self::is_truthy(self.evaluate(cond)?) {
+                    self.execute(*branch_then)
+                } else {
+                    if let Some(branch_else) = branch_else {
+                        self.execute(*branch_else)?;
+                        Ok(())
+                    } else {
+                        Ok(())
+                    }
+                }
+            }
         }
     }
 }
@@ -176,34 +204,10 @@ mod tests {
     #[test]
     fn fooasd() {
         let mut p = Parser::new(Lexer::new(
-"var a = \"global a\";
-var b = \"global b\";
-var c = \"global c\";
-{
-  var a = \"outer a\";
-  var b = \"outer b\";
-  {
-    var a = \"inner a\";
-    print a;
-    print b;
-    print c;
-  }
-  print a;
-  print b;
-  print c;
-}
-print a;
-print b;
-print c;"
+                "print nil or \"yes\"  ;"
         ));
         let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
-        println!("{:?}", i.execute(p.next().unwrap()));
-        println!("{:?}", i.execute(p.next().unwrap()));
-        println!("{:?}", i.execute(p.next().unwrap()));
-        println!("{:?}", i.execute(p.next().unwrap()));
-        println!("{:?}", i.execute(p.next().unwrap()));
-        println!("{:?}", i.execute(p.next().unwrap()));
         println!("{:?}", i.execute(p.next().unwrap()));
     }
 }
