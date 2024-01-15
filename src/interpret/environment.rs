@@ -2,32 +2,60 @@ use crate::error::Runtime as RuntimeError;
 use crate::parse::Literal;
 use crate::Located;
 use std::collections::HashMap;
+use std::mem;
 
 pub struct Environment {
     values: HashMap<String, Literal>,
+    enclosing: Option<Box<Environment>>,
 }
 
 impl Environment {
     pub fn new() -> Self {
         Self {
             values: HashMap::new(),
+            enclosing: None,
         }
     }
 
-    pub fn define(&mut self, name: String, value: Literal) {
-        self.values.insert(name, value);
+    pub fn nest(&mut self) {
+        let enclosing = mem::replace(self, Self::new());
+        self.enclosing = Some(Box::new(enclosing));
     }
 
-    pub fn assign(&mut self, name: String, value: Literal) -> Result<(), ()> {
-        self.values.get_mut(&name).map(|v| *v = value).ok_or(())
+    pub fn unnest(&mut self) -> Result<(), ()> {
+        let enclosing = mem::take(&mut self.enclosing);
+        if let Some(e) = enclosing {
+            let _ = mem::replace(self, *e);
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
-    pub fn get(&self, name: Located<String>) -> Result<Literal, Located<RuntimeError>> {
-        self.values
-            .get(name.value())
-            .map(|l| Ok(l.clone()))
-            .unwrap_or_else(|| {
-                Err(name.co_locate(RuntimeError::UndefinedVariable(name.value().clone())))
-            })
+    pub fn define(&mut self, name: &str, value: Literal) {
+        self.values.insert(name.to_owned(), value);
+    }
+
+    pub fn assign(&mut self, name: &str, value: Literal) -> Result<(), ()> {
+        match self.values.get_mut(name) {
+            Some(v) => {
+                *v = value;
+                Ok(())
+            }
+            None => match &mut self.enclosing {
+                Some(ref mut e) => e.assign(name, value),
+                None => Err(()),
+            },
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Result<&Literal, ()> {
+        match self.values.get(name) {
+            Some(v) => Ok(v),
+            None => match &self.enclosing {
+                Some(e) => e.get(name),
+                None => Err(()),
+            },
+        }
     }
 }

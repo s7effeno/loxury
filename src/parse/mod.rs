@@ -102,9 +102,20 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        self.next_token_if(|t| matches!(t.value(), Token::Print))
-            .map(|_| self.print_statement())
-            .unwrap_or_else(|| self.expression_statement())
+        match self.peek_token() {
+            Some(t) => match t.value() {
+                Token::Print => {
+                    self.tokens.next();
+                    self.print_statement()
+                }
+                Token::LeftBrace => {
+                    self.tokens.next();
+                    Ok(Stmt::Block(self.block()?))
+                }
+                _ => self.expression_statement(),
+            },
+            None => self.expression_statement(),
+        }
     }
 
     fn print_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -126,6 +137,26 @@ impl<'a> Parser<'a> {
                 .map(|_| Ok(Stmt::Expression(expr)))
                 .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnterminatedExprStatement))),
             None => Err(Located::at_eof(SyntaxError::UnterminatedExprStatement)),
+        }
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, Located<SyntaxError>> {
+        let mut statements = Vec::new();
+        while let Some(t) = self.peek_token() {
+            if let Token::RightBrace = t.value() {
+                break;
+            }
+            statements.push(self.declaration()?);
+        }
+        if let Some(t) = self.peek_token() {
+            if let Token::RightBrace = t.value() {
+                self.tokens.next();
+                Ok(statements)
+            } else {
+                Err(t.co_locate(SyntaxError::UnterminatedBlock))
+            }
+        } else {
+            Err(Located::at_eof(SyntaxError::UnterminatedBlock))
         }
     }
 
@@ -318,11 +349,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn asd() {
-        let mut p = Parser::new(Lexer::new("var s;"));
+    fn aaa() {
+        let mut p = Parser::new(Lexer::new("}"));
         println!("{:?}", p.next());
-        println!("{:?}", p.errors,);
-        p.next();
-        println!("{:?}", p.errors,);
+        println!("{:?}", p.errors);
     }
 }

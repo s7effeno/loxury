@@ -118,16 +118,21 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(name) => self.environment.get(name),
+            Expr::Variable(name) => self
+                .environment
+                .get(name.value())
+                .map(|l| l.clone())
+                .map_err(|_| {
+                    name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+                }),
             Expr::Assign(name, value) => {
                 let value = self.evaluate(*value)?;
                 self.environment
-                    .assign(name.value().to_owned(), value.clone())
+                    .assign(name.value(), value.clone())
                     .map(|_| value)
                     .map_err(|_| {
                         name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
                     })
-                // self.environment.assign(name.value().to_owned(), self.evaluate(*value)?).map
             }
         }
     }
@@ -144,7 +149,18 @@ impl Interpreter {
             }
             Stmt::Var(name, init) => {
                 let init = self.evaluate(init.unwrap_or(Expr::Literal(Literal::Nil)))?;
-                self.environment.define(name.value().to_owned(), init);
+                self.environment.define(name.value(), init);
+                Ok(())
+            }
+            Stmt::Block(b) => {
+                self.environment.nest();
+                for s in b {
+                    self.execute(s)?;
+                }
+                self.environment
+                    .unnest()
+                    // unreachable, the parser would spot it
+                    .expect("no enclosing scope to revert to");
                 Ok(())
             }
         }
@@ -160,11 +176,29 @@ mod tests {
     #[test]
     fn fooasd() {
         let mut p = Parser::new(Lexer::new(
-            // "print 3 + 4; print 2 / 3; print true; print \"foo\" + \"bar\";",
-            "var a = 5; print a; a = 7; print a; b = 6; print b;"
+"var a = \"global a\";
+var b = \"global b\";
+var c = \"global c\";
+{
+  var a = \"outer a\";
+  var b = \"outer b\";
+  {
+    var a = \"inner a\";
+    print a;
+    print b;
+    print c;
+  }
+  print a;
+  print b;
+  print c;
+}
+print a;
+print b;
+print c;"
         ));
         let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
+        println!("{:?}", i.execute(p.next().unwrap()));
         println!("{:?}", i.execute(p.next().unwrap()));
         println!("{:?}", i.execute(p.next().unwrap()));
         println!("{:?}", i.execute(p.next().unwrap()));

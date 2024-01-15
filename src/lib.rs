@@ -80,6 +80,7 @@ mod error {
         UnterminatedExprStatement,
         ExpectedVariableName,
         InvalidAssignmentTarget,
+        UnterminatedBlock,
     }
 
     impl Display for Syntax {
@@ -96,6 +97,7 @@ mod error {
                 }
                 Self::ExpectedVariableName => write!(f, "expected variable name"),
                 Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
+                Self::UnterminatedBlock => write!(f, "expected '}}' at the end of block"),
             }
         }
     }
@@ -117,6 +119,7 @@ mod error {
                 Self::UndefinedVariable(s) => {
                     write!(f, "variable '{}' is not defined", s)
                 }
+                
             }
         }
     }

@@ -1,9 +1,9 @@
 use super::expr::Expr;
-use crate::lex::Token;
 use crate::Located;
 
 #[derive(Debug)]
 pub enum Stmt {
+    Block(Vec<Stmt>),
     Expression(Expr),
     Print(Expr),
     Var(Located<String>, Option<Expr>),
