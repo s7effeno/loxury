@@ -25,7 +25,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate(&mut self, expr: Expr) -> Result<Literal, Located<RuntimeError>> {
+    fn evaluate(&mut self, expr: &Expr) -> Result<Literal, Located<RuntimeError>> {
         fn is_equal(left: Literal, right: Literal) -> bool {
             match (left, right) {
                 (Literal::Nil, Literal::Nil) => true,
@@ -37,10 +37,10 @@ impl Interpreter {
         }
 
         match expr {
-            Expr::Literal(e) => Ok(e),
-            Expr::Grouping(e) => self.evaluate(*e),
+            Expr::Literal(e) => Ok(e.clone()),
+            Expr::Grouping(e) => self.evaluate(e),
             Expr::Unary(op, e) => {
-                let right = self.evaluate(*e)?;
+                let right = self.evaluate(e)?;
                 match op.value() {
                     Token::Minus => {
                         if let Literal::Number(n) = right {
@@ -54,8 +54,8 @@ impl Interpreter {
                 }
             }
             Expr::Binary(l, op, r) => {
-                let left = self.evaluate(*l)?;
-                let right = self.evaluate(*r)?;
+                let left = self.evaluate(l)?;
+                let right = self.evaluate(r)?;
                 match op.value() {
                     Token::Greater => {
                         if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
@@ -128,7 +128,7 @@ impl Interpreter {
                     name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
                 }),
             Expr::Assign(name, value) => {
-                let value = self.evaluate(*value)?;
+                let value = self.evaluate(value)?;
                 self.environment
                     .assign(name.value(), value.clone())
                     .map(|_| value)
@@ -137,7 +137,7 @@ impl Interpreter {
                     })
             }
             Expr::Logical(l, op, r) => {
-                let left = self.evaluate(*l)?;
+                let left = self.evaluate(l)?;
                 if let Token::Or = op.value() {
                     if Self::is_truthy(left.clone()) {
                         return Ok(left);
@@ -148,23 +148,23 @@ impl Interpreter {
                     }
                 }
 
-                self.evaluate(*r)
+                self.evaluate(r)
             }
         }
     }
 
-    fn execute(&mut self, stmt: Stmt) -> Result<(), Located<RuntimeError>> {
+    fn execute(&mut self, stmt: &Stmt) -> Result<(), Located<RuntimeError>> {
         match stmt {
             Stmt::Print(e) => {
-                println!("{}", self.evaluate(e)?);
+                println!("{}", self.evaluate(&e)?);
                 Ok(())
             }
             Stmt::Expression(e) => {
-                self.evaluate(e)?;
+                self.evaluate(&e)?;
                 Ok(())
             }
             Stmt::Var(name, init) => {
-                let init = self.evaluate(init.unwrap_or(Expr::Literal(Literal::Nil)))?;
+                let init = self.evaluate(init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)))?;
                 self.environment.define(name.value(), init);
                 Ok(())
             }
@@ -180,16 +180,22 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::If(cond, branch_then, branch_else) => {
-                if Self::is_truthy(self.evaluate(cond)?) {
-                    self.execute(*branch_then)
+                if Self::is_truthy(self.evaluate(&cond)?) {
+                    self.execute(branch_then)
                 } else {
                     if let Some(branch_else) = branch_else {
-                        self.execute(*branch_else)?;
+                        self.execute(branch_else)?;
                         Ok(())
                     } else {
                         Ok(())
                     }
                 }
+            }
+            Stmt::While(cond, body) => {
+                while Self::is_truthy(self.evaluate(&cond)?) {
+                    self.execute(body)?;
+                }
+                Ok(())
             }
         }
     }
@@ -204,10 +210,20 @@ mod tests {
     #[test]
     fn fooasd() {
         let mut p = Parser::new(Lexer::new(
-                "print nil or \"yes\"  ;"
+            "
+            var a = 0;
+            var temp;
+
+            for (var b = 1; a < 10000; b = temp + b) {
+              print a;
+              temp = a;
+              a = b;
+            }",
         ));
         let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
-        println!("{:?}", i.execute(p.next().unwrap()));
+        println!("{:?}", i.execute(&p.next().unwrap()));
+        println!("{:?}", i.execute(&p.next().unwrap()));
+        println!("{:?}", i.execute(&p.next().unwrap()));
     }
 }

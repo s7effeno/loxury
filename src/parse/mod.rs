@@ -104,6 +104,14 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         match self.peek_token() {
             Some(t) => match t.value() {
+                Token::For => {
+                    self.tokens.next();
+                    self.for_statement()
+                }
+                Token::While => {
+                    self.tokens.next();
+                    self.while_statement()
+                }
                 Token::If => {
                     self.tokens.next();
                     self.if_statement()
@@ -122,26 +130,135 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn if_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
+    fn for_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
+        };
+        let Token::LeftParen = t.value() else {
+            return Err(t.co_locate(SyntaxError::ExpectedControlLeftParen));
+        };
+        self.tokens.next();
+
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedSemiColonAfterForInit));
+        };
+        let initializer = match t.value() {
+            Token::Semicolon => {
+                self.tokens.next();
+                None
+            }
+            Token::Var => {
+                self.tokens.next();
+                Some(self.var_declaration()?)
+            }
+            _ => Some(self.expression_statement()?),
+        };
+        println!("initializer: {:?}", initializer);
+
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(
+                SyntaxError::ExpectedSemicolonAfterForCondition,
+            ));
+        };
+        let condition = if let Token::Semicolon = t.value() {
+            self.tokens.next();
+            None
+        } else {
+            Some(self.expression()?)
+        };
+        if let Some(t) = self.peek_token() {
+            let Token::Semicolon = t.value() else {
+                return Err(t.co_locate(SyntaxError::ExpectedSemicolonAfterForCondition));
+            };
+            self.tokens.next();
+        }
+        println!("condition: {:?}", condition);
+
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedControlRightParen));
+        };
+        let increment = if let Token::RightParen = t.value() {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedControlRightParen));
+        };
+        let Token::RightParen = t.value() else {
+            return Err(t.co_locate(SyntaxError::ExpectedControlRightParen));
+        };
+        self.tokens.next();
+
+        let mut body = self.statement()?;
+
+        if let Some(i) = increment {
+            body = Stmt::Block(vec![body, Stmt::Expression(i)]);
+        }
+
+        body = Stmt::While(
+            if let Some(c) = condition {
+                c
+            } else {
+                Expr::Literal(Literal::Boolean(true))
+            },
+            Box::new(body),
+        );
+
+        if let Some(i) = initializer {
+            body = Stmt::Block(vec![i, body])
+        }
+        println!("{:?}", body);
+
+        Ok(body)
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         let condition = if let Some(t) = self.peek_token() {
             if let Token::LeftParen = t.value() {
                 self.tokens.next();
                 self.expression()
             } else {
-                Err(t.co_locate(SyntaxError::ExpectedControlExpression))
+                Err(t.co_locate(SyntaxError::ExpectedControlLeftParen))
             }
         } else {
-            Err(Located::at_eof(SyntaxError::ExpectedControlExpression))
+            Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen))
         }?;
         if let Some(t) = self.peek_token() {
             if let Token::RightParen = t.value() {
                 self.tokens.next();
                 Ok(())
             } else {
-                Err(t.co_locate(SyntaxError::UnterminatedControlExpression))
+                Err(t.co_locate(SyntaxError::ExpectedControlRightParen))
             }
         } else {
-            Err(Located::at_eof(SyntaxError::UnterminatedControlExpression))
+            Err(Located::at_eof(SyntaxError::ExpectedControlRightParen))
+        }?;
+        let body = self.statement()?;
+
+        Ok(Stmt::While(condition, Box::new(body)))
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
+        let condition = if let Some(t) = self.peek_token() {
+            if let Token::LeftParen = t.value() {
+                self.tokens.next();
+                self.expression()
+            } else {
+                Err(t.co_locate(SyntaxError::ExpectedControlLeftParen))
+            }
+        } else {
+            Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen))
+        }?;
+        if let Some(t) = self.peek_token() {
+            if let Token::RightParen = t.value() {
+                self.tokens.next();
+                Ok(())
+            } else {
+                Err(t.co_locate(SyntaxError::ExpectedControlRightParen))
+            }
+        } else {
+            Err(Located::at_eof(SyntaxError::ExpectedControlRightParen))
         }?;
         let branch_then = self.statement()?;
         let branch_else = if let Some(t) = self.peek_token() {
@@ -427,8 +544,20 @@ mod tests {
 
     #[test]
     fn aaa() {
-        let mut p = Parser::new(Lexer::new("}"));
-        println!("{:?}", p.next());
+        let mut p = Parser::new(Lexer::new(
+            "
+            var a = 0;
+            var temp;
+
+            for (var b = 1; a < 10000; b = temp + b) {
+              print a;
+              temp = a;
+              a = b;
+            }",
+        ));
+        println!("{:#?}", p.next());
+        println!("{:#?}", p.next());
+        println!("{:#?}", p.next());
         println!("{:?}", p.errors);
     }
 }

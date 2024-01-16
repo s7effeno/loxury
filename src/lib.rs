@@ -81,8 +81,10 @@ mod error {
         ExpectedVariableName,
         InvalidAssignmentTarget,
         UnterminatedBlock,
-        ExpectedControlExpression,
-        UnterminatedControlExpression,
+        ExpectedControlLeftParen,
+        ExpectedControlRightParen,
+        ExpectedSemiColonAfterForInit,
+        ExpectedSemicolonAfterForCondition,
     }
 
     impl Display for Syntax {
@@ -100,11 +102,17 @@ mod error {
                 Self::ExpectedVariableName => write!(f, "expected variable name"),
                 Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
                 Self::UnterminatedBlock => write!(f, "expected '}}' at the end of block"),
-                Self::ExpectedControlExpression => {
+                Self::ExpectedControlLeftParen => {
                     write!(f, "expected '(' after control statement")
                 }
-                Self::UnterminatedControlExpression => {
-                    write!(f, "expected ')' after control expression")
+                Self::ExpectedControlRightParen => {
+                    write!(f, "expected ')' before control statement body")
+                }
+                Self::ExpectedSemiColonAfterForInit => {
+                    write!(f, "expected ';' after for loop initializer")
+                }
+                Self::ExpectedSemicolonAfterForCondition => {
+                    write!(f, "expected ';' after for loop condition")
                 }
             }
         }

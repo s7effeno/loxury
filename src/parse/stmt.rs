@@ -8,4 +8,5 @@ pub enum Stmt {
     Print(Expr),
     Var(Located<String>, Option<Expr>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
+    While(Expr, Box<Stmt>),
 }
