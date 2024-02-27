@@ -26,6 +26,10 @@ impl Interpreter {
     }
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Literal, Located<RuntimeError>> {
+        Self::_evaluate(expr, &mut self.environment)
+    }
+
+    fn _evaluate(expr: &Expr, environment: &mut Environment) -> Result<Literal, Located<RuntimeError>> {
         fn is_equal(left: Literal, right: Literal) -> bool {
             match (left, right) {
                 (Literal::Nil, Literal::Nil) => true,
@@ -38,9 +42,9 @@ impl Interpreter {
 
         match expr {
             Expr::Literal(e) => Ok(e.clone()),
-            Expr::Grouping(e) => self.evaluate(e),
+            Expr::Grouping(e) => Self::_evaluate(e, environment),
             Expr::Unary(op, e) => {
-                let right = self.evaluate(e)?;
+                let right = Self::_evaluate(e, environment)?;
                 match op.value() {
                     Token::Minus => {
                         if let Literal::Number(n) = right {
@@ -54,8 +58,8 @@ impl Interpreter {
                 }
             }
             Expr::Binary(l, op, r) => {
-                let left = self.evaluate(l)?;
-                let right = self.evaluate(r)?;
+                let left = Self::_evaluate(l, environment)?;
+                let right = Self::_evaluate(r, environment)?;
                 match op.value() {
                     Token::Greater => {
                         if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
@@ -120,16 +124,16 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(name) => self
-                .environment
+            Expr::Variable(name) => 
+                environment
                 .get(name.value())
                 .map(|l| l.clone())
                 .map_err(|_| {
                     name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
                 }),
             Expr::Assign(name, value) => {
-                let value = self.evaluate(value)?;
-                self.environment
+                let value = Self::_evaluate(value, environment)?;
+                environment
                     .assign(name.value(), value.clone())
                     .map(|_| value)
                     .map_err(|_| {
@@ -137,7 +141,7 @@ impl Interpreter {
                     })
             }
             Expr::Logical(l, op, r) => {
-                let left = self.evaluate(l)?;
+                let left = Self::_evaluate(l, environment)?;
                 if let Token::Or = op.value() {
                     if Self::is_truthy(left.clone()) {
                         return Ok(left);
@@ -148,43 +152,40 @@ impl Interpreter {
                     }
                 }
 
-                self.evaluate(r)
+                Self::_evaluate(r, environment)
             }
         }
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<(), Located<RuntimeError>> {
+        Self::_execute(stmt, &mut self.environment)
+    }
+
+    fn _execute(stmt: &Stmt, environment: &mut Environment) -> Result<(), Located<RuntimeError>> {
         match stmt {
             Stmt::Print(e) => {
-                println!("{}", self.evaluate(&e)?);
+                println!("{}", Self::_evaluate(&e, environment)?);
                 Ok(())
             }
             Stmt::Expression(e) => {
-                self.evaluate(&e)?;
+                Self::_evaluate(&e, environment)?;
                 Ok(())
             }
             Stmt::Var(name, init) => {
-                let init = self.evaluate(init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)))?;
-                self.environment.define(name.value(), init);
+                let init = Self::_evaluate(init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)), environment)?;
+                environment.define(name.value(), init);
                 Ok(())
             }
             Stmt::Block(b) => {
-                self.environment.nest();
-                for s in b {
-                    self.execute(s)?;
-                }
-                self.environment
-                    .unnest()
-                    // unreachable, the parser would spot it
-                    .expect("no enclosing scope to revert to");
+                Self::execute_block(b, environment);
                 Ok(())
             }
             Stmt::If(cond, branch_then, branch_else) => {
-                if Self::is_truthy(self.evaluate(&cond)?) {
-                    self.execute(branch_then)
+                if Self::is_truthy(Self::_evaluate(&cond, environment)?) {
+                    Self::_execute(branch_then, environment)
                 } else {
                     if let Some(branch_else) = branch_else {
-                        self.execute(branch_else)?;
+                        Self::_execute(branch_else, environment)?;
                         Ok(())
                     } else {
                         Ok(())
@@ -192,11 +193,18 @@ impl Interpreter {
                 }
             }
             Stmt::While(cond, body) => {
-                while Self::is_truthy(self.evaluate(&cond)?) {
-                    self.execute(body)?;
+                while Self::is_truthy(Self::_evaluate(&cond, environment)?) {
+                    Self::_execute(body, environment)?;
                 }
                 Ok(())
             }
+        }
+    }
+
+    fn execute_block(statements: &Vec<Stmt>, environment: &mut Environment) {
+        environment.nest();
+        for statement in statements {
+
         }
     }
 }
