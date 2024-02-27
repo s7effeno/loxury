@@ -49,7 +49,7 @@ impl Interpreter {
                             panic!();
                         }
                     }
-                    Token::Bang => Ok(Literal::Boolean({ !Self::is_truthy(right) })),
+                    Token::Bang => Ok(Literal::Boolean(!Self::is_truthy(right))),
                     _ => unreachable!(),
                 }
             }
@@ -211,17 +211,19 @@ mod tests {
     fn fooasd() {
         let mut p = Parser::new(Lexer::new(
             "
-            var a = 0;
-            var temp;
-
-            for (var b = 1; a < 10000; b = temp + b) {
-              print a;
-              temp = a;
-              a = b;
+            var x = 6;
+            var x;
+            print x;
+            for (var i = 0; i < 10; i = i + 1) {
+                print i;
+                for (var j = 0; j < 10; j = j + 1) {
+                    print j;
+                }
             }",
         ));
         let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
+        println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));

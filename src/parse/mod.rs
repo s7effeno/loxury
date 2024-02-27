@@ -13,6 +13,8 @@ pub struct Parser<'a> {
     errors: Vec<Located<SyntaxError>>,
 }
 
+// TODO: write this shit better and less boilerplated
+// a method to access the token itself for self.peek would be useful
 impl<'a> Parser<'a> {
     pub fn new(tokens: Lexer<'a>) -> Self {
         Self {
@@ -23,18 +25,6 @@ impl<'a> Parser<'a> {
 
     fn error(&mut self, error: Located<SyntaxError>) {
         self.errors.push(error);
-    }
-
-    // TODO: find better alternative to these three methods
-    fn next_token(&mut self) -> Option<Located<Token>> {
-        match self.tokens.next() {
-            Some(Ok(t)) => Some(t),
-            Some(Err(e)) => {
-                self.error(e);
-                self.next_token()
-            }
-            None => None,
-        }
     }
 
     fn peek_token(&mut self) -> Option<Located<Token>> {
@@ -68,36 +58,28 @@ impl<'a> Parser<'a> {
 
     // TODO: write this shit better
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        if let Some(t) = self.peek_token() {
-            if let Token::Identifier(i) = t.value() {
-                self.tokens.next();
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedVariableName));
+        };
+        let Token::Identifier(identifier) = t.value() else {
+            return Err(t.co_locate(SyntaxError::ExpectedVariableName));
+        };
+        self.tokens.next();
 
-                let initializer = if let Some(t) = self.peek_token() {
-                    if let Token::Equal = t.value() {
-                        self.tokens.next();
-                        Some(self.expression()?)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                if let Some(t) = self.peek_token() {
-                    if let Token::Semicolon = t.value() {
-                        self.tokens.next();
-                        Ok(Stmt::Var(t.co_locate(i.to_owned()), initializer))
-                    } else {
-                        Err(t.co_locate(SyntaxError::UnterminatedExprStatement))
-                    }
-                } else {
-                    Err(Located::at_eof(SyntaxError::UnterminatedExprStatement))
-                }
-            } else {
-                Err(t.co_locate(SyntaxError::ExpectedVariableName))
-            }
+        let initializer = if let Some(_) = self.next_token_if(|t| matches!(t.value(), Token::Equal)) {
+            Some(self.expression()?)
         } else {
-            Err(Located::at_eof(SyntaxError::ExpectedVariableName))
+            None
+        };
+
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::UnterminatedExprStatement));
+        };
+        if let Token::Semicolon = t.value() {
+            self.tokens.next();
+            Ok(Stmt::Var(t.co_locate(identifier.to_owned()), initializer))
+        } else {
+            Err(t.co_locate(SyntaxError::UnterminatedExprStatement))
         }
     }
 
@@ -153,13 +135,13 @@ impl<'a> Parser<'a> {
             }
             _ => Some(self.expression_statement()?),
         };
-        println!("initializer: {:?}", initializer);
 
         let Some(t) = self.peek_token() else {
             return Err(Located::at_eof(
                 SyntaxError::ExpectedSemicolonAfterForCondition,
             ));
         };
+
         let condition = if let Token::Semicolon = t.value() {
             self.tokens.next();
             None
@@ -172,7 +154,6 @@ impl<'a> Parser<'a> {
             };
             self.tokens.next();
         }
-        println!("condition: {:?}", condition);
 
         let Some(t) = self.peek_token() else {
             return Err(Located::at_eof(SyntaxError::ExpectedControlRightParen));
@@ -208,58 +189,52 @@ impl<'a> Parser<'a> {
         if let Some(i) = initializer {
             body = Stmt::Block(vec![i, body])
         }
-        println!("{:?}", body);
 
         Ok(body)
     }
 
     fn while_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let condition = if let Some(t) = self.peek_token() {
-            if let Token::LeftParen = t.value() {
-                self.tokens.next();
-                self.expression()
-            } else {
-                Err(t.co_locate(SyntaxError::ExpectedControlLeftParen))
-            }
-        } else {
-            Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen))
-        }?;
-        if let Some(t) = self.peek_token() {
-            if let Token::RightParen = t.value() {
-                self.tokens.next();
-                Ok(())
-            } else {
-                Err(t.co_locate(SyntaxError::ExpectedControlRightParen))
-            }
-        } else {
-            Err(Located::at_eof(SyntaxError::ExpectedControlRightParen))
-        }?;
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
+        };
+        let Token::LeftParen = t.value() else {
+            return Err(t.co_locate(SyntaxError::ExpectedControlLeftParen));
+        };
+        self.tokens.next();
+
+        let condition = self.expression()?;
+
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
+        };
+        let Token::RightParen = t.value() else {
+            return Err(t.co_locate(SyntaxError::ExpectedControlRightParen));
+        };
+        self.tokens.next();
+
         let body = self.statement()?;
 
         Ok(Stmt::While(condition, Box::new(body)))
     }
 
     fn if_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let condition = if let Some(t) = self.peek_token() {
-            if let Token::LeftParen = t.value() {
-                self.tokens.next();
-                self.expression()
-            } else {
-                Err(t.co_locate(SyntaxError::ExpectedControlLeftParen))
-            }
-        } else {
-            Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen))
-        }?;
-        if let Some(t) = self.peek_token() {
-            if let Token::RightParen = t.value() {
-                self.tokens.next();
-                Ok(())
-            } else {
-                Err(t.co_locate(SyntaxError::ExpectedControlRightParen))
-            }
-        } else {
-            Err(Located::at_eof(SyntaxError::ExpectedControlRightParen))
-        }?;
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
+        };
+        let Token::LeftParen = t.value() else {
+            return Err(t.co_locate(SyntaxError::ExpectedControlLeftParen));
+        };
+        self.tokens.next();
+        let condition = self.expression()?;
+
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::ExpectedControlRightParen));
+        };
+        let Token::RightParen = t.value() else {
+            return Err(t.co_locate(SyntaxError::ExpectedControlRightParen));
+        };
+        self.tokens.next();
+
         let branch_then = self.statement()?;
         let branch_else = if let Some(t) = self.peek_token() {
             if let Token::Else = t.value() {
@@ -308,16 +283,16 @@ impl<'a> Parser<'a> {
             }
             statements.push(self.declaration()?);
         }
-        if let Some(t) = self.peek_token() {
-            if let Token::RightBrace = t.value() {
-                self.tokens.next();
-                Ok(statements)
-            } else {
-                Err(t.co_locate(SyntaxError::UnterminatedBlock))
-            }
-        } else {
-            Err(Located::at_eof(SyntaxError::UnterminatedBlock))
-        }
+
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::UnterminatedBlock));
+        };
+        let Token::RightBrace = t.value() else {
+            return Err(t.co_locate(SyntaxError::UnterminatedBlock));
+        };
+        self.tokens.next();
+
+        Ok(statements)
     }
 
     fn expression(&mut self) -> Result<Expr, Located<SyntaxError>> {
@@ -332,7 +307,8 @@ impl<'a> Parser<'a> {
             if let Expr::Variable(name) = expr {
                 Ok(Expr::Assign(name, Box::new(value)))
             } else {
-                Err(t.co_locate(SyntaxError::InvalidAssignmentTarget))
+                self.error(t.co_locate(SyntaxError::InvalidAssignmentTarget));
+                Ok(expr)
             }
         } else {
             Ok(expr)
