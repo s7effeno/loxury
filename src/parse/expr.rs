@@ -25,6 +25,7 @@ impl Display for Literal {
 pub enum Expr {
     Assign(Located<String>, Box<Expr>),
     Binary(Box<Expr>, Located<Token>, Box<Expr>),
+    Call(Box<Expr>, Located<Token>, Vec<Expr>),
     Grouping(Box<Expr>),
     Literal(Literal),
     Logical(Box<Expr>, Located<Token>, Box<Expr>),

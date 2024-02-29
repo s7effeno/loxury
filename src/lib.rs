@@ -85,6 +85,7 @@ mod error {
         ExpectedControlRightParen,
         ExpectedSemiColonAfterForInit,
         ExpectedSemicolonAfterForCondition,
+        UnclosedArgumentsList,
     }
 
     impl Display for Syntax {
@@ -113,6 +114,9 @@ mod error {
                 }
                 Self::ExpectedSemicolonAfterForCondition => {
                     write!(f, "expected ';' after for loop condition")
+                }
+                Self::UnclosedArgumentsList => {
+                    write!(f, "expected ')' after argument list")
                 }
             }
         }

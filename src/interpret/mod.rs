@@ -29,7 +29,10 @@ impl Interpreter {
         Self::_evaluate(expr, &mut self.environment)
     }
 
-    fn _evaluate(expr: &Expr, environment: &mut Environment) -> Result<Literal, Located<RuntimeError>> {
+    fn _evaluate(
+        expr: &Expr,
+        environment: &mut Environment,
+    ) -> Result<Literal, Located<RuntimeError>> {
         fn is_equal(left: Literal, right: Literal) -> bool {
             match (left, right) {
                 (Literal::Nil, Literal::Nil) => true,
@@ -124,13 +127,14 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(name) => 
+            Expr::Variable(name) => {
                 environment
-                .get(name.value())
-                .map(|l| l.clone())
-                .map_err(|_| {
-                    name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
-                }),
+                    .get(name.value())
+                    .map(|l| l.clone())
+                    .map_err(|_| {
+                        name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+                    })
+            }
             Expr::Assign(name, value) => {
                 let value = Self::_evaluate(value, environment)?;
                 environment
@@ -154,6 +158,7 @@ impl Interpreter {
 
                 Self::_evaluate(r, environment)
             }
+            Expr::Call(_, _, _) => todo!(),
         }
     }
 
@@ -172,7 +177,10 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Var(name, init) => {
-                let init = Self::_evaluate(init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)), environment)?;
+                let init = Self::_evaluate(
+                    init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)),
+                    environment,
+                )?;
                 environment.define(name.value(), init);
                 Ok(())
             }
@@ -203,9 +211,7 @@ impl Interpreter {
 
     fn execute_block(statements: &Vec<Stmt>, environment: &mut Environment) {
         environment.nest();
-        for statement in statements {
-
-        }
+        for statement in statements {}
     }
 }
 

@@ -423,7 +423,41 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.primary()
+        self.call()
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr, Located<SyntaxError>> {
+        let mut arguments = Vec::new();
+        let Some(t) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::UnclosedArgumentsList));
+        };
+        loop {
+            arguments.push(self.expression()?);
+            let Some(_) = self.next_token_if(|t| matches!(t.value(), Token::Comma)) else {
+                break;
+            };
+        }
+        let Some(paren) = self.peek_token() else {
+            return Err(Located::at_eof(SyntaxError::UnclosedArgumentsList));
+        };
+        let Token::RightParen = t.value() else {
+            return Err(t.co_locate(SyntaxError::UnclosedArgumentsList));
+        };
+        self.tokens.next();
+
+        Ok(Expr::Call(Box::new(callee), paren, arguments))
+    }
+
+    fn call(&mut self) -> Result<Expr, Located<SyntaxError>> {
+        let mut expr = self.primary()?;
+        loop {
+            if let Some(_) = self.next_token_if(|t| matches!(t.value(), Token::LeftParen)) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
     }
 
     fn primary(&mut self) -> Result<Expr, Located<SyntaxError>> {
