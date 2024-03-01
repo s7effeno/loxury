@@ -40,136 +40,111 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn next_token_if(
-        &mut self,
-        func: impl FnOnce(&Located<Token>) -> bool,
-    ) -> Option<Located<Token>> {
-        self.peek_token().filter(|c| func(c)).map(|c| {
+    fn next_token_if(&mut self, func: impl FnOnce(&Token) -> bool) -> Option<Located<Token>> {
+        self.peek_token().filter(|c| func(c.value())).map(|c| {
             self.tokens.next();
             c
         })
     }
 
+    fn next_token_if_or_err(
+        &mut self,
+        func: impl FnOnce(&Token) -> bool,
+    ) -> Result<Located<Token>, Located<()>> {
+        let token = self
+            .peek_token()
+            .ok_or(())
+            .map_err(|_| Located::at_eof(()))?;
+        if func(token.value()) {
+            self.tokens.next();
+            Ok(token)
+        } else {
+            Err(token.co_locate(()))
+        }
+    }
+
     fn declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        self.next_token_if(|t| matches!(t.value(), Token::Var))
+        self.next_token_if(|t| matches!(t, Token::Var))
             .map(|_| self.var_declaration())
             .unwrap_or_else(|| self.statement())
     }
 
     // TODO: write this shit better
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedVariableName));
-        };
+        let t = self
+            .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedVariableName))?;
         let Token::Identifier(identifier) = t.value() else {
-            return Err(t.co_locate(SyntaxError::ExpectedVariableName));
+            unreachable!()
         };
-        self.tokens.next();
 
-        let initializer = if let Some(_) = self.next_token_if(|t| matches!(t.value(), Token::Equal)) {
+        let initializer = if let Some(_) = self.next_token_if(|t| matches!(t, Token::Equal)) {
             Some(self.expression()?)
         } else {
             None
         };
 
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::UnterminatedExprStatement));
-        };
-        if let Token::Semicolon = t.value() {
-            self.tokens.next();
-            Ok(Stmt::Var(t.co_locate(identifier.to_owned()), initializer))
-        } else {
-            Err(t.co_locate(SyntaxError::UnterminatedExprStatement))
-        }
+        self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
+            .map_err(|e| e.co_locate(SyntaxError::UnterminatedExprStatement))?;
+
+        Ok(Stmt::Var(t.co_locate(identifier.to_owned()), initializer))
     }
 
     fn statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        match self.peek_token() {
-            Some(t) => match t.value() {
-                Token::For => {
-                    self.tokens.next();
-                    self.for_statement()
-                }
-                Token::While => {
-                    self.tokens.next();
-                    self.while_statement()
-                }
-                Token::If => {
-                    self.tokens.next();
-                    self.if_statement()
-                }
-                Token::Print => {
-                    self.tokens.next();
-                    self.print_statement()
-                }
-                Token::LeftBrace => {
-                    self.tokens.next();
-                    Ok(Stmt::Block(self.block()?))
-                }
-                _ => self.expression_statement(),
-            },
-            None => self.expression_statement(),
+        if self.next_token_if(|t| matches!(t, Token::For)).is_some() {
+            self.for_statement()
+        } else if self.next_token_if(|t| matches!(t, Token::While)).is_some() {
+            self.while_statement()
+        } else if self.next_token_if(|t| matches!(t, Token::If)).is_some() {
+            self.if_statement()
+        } else if self.next_token_if(|t| matches!(t, Token::Print)).is_some() {
+            self.print_statement()
+        } else if self
+            .next_token_if(|t| matches!(t, Token::LeftBrace))
+            .is_some()
+        {
+            Ok(Stmt::Block(self.block()?))
+        } else {
+            self.expression_statement()
         }
     }
 
     fn for_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
-        };
-        let Token::LeftParen = t.value() else {
-            return Err(t.co_locate(SyntaxError::ExpectedControlLeftParen));
-        };
-        self.tokens.next();
+        self.next_token_if_or_err(|t| matches!(t, Token::LeftParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedControlLeftParen))?;
 
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedSemiColonAfterForInit));
-        };
-        let initializer = match t.value() {
-            Token::Semicolon => {
-                self.tokens.next();
-                None
-            }
-            Token::Var => {
-                self.tokens.next();
-                Some(self.var_declaration()?)
-            }
-            _ => Some(self.expression_statement()?),
+        let initializer = if self
+            .next_token_if(|t| matches!(t, Token::Semicolon))
+            .is_some()
+        {
+            None
+        } else if self.next_token_if(|t| matches!(t, Token::Var)).is_some() {
+            Some(self.var_declaration()?)
+        } else {
+            Some(self.expression_statement()?)
         };
 
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(
-                SyntaxError::ExpectedSemicolonAfterForCondition,
-            ));
-        };
-
-        let condition = if let Token::Semicolon = t.value() {
-            self.tokens.next();
+        let condition = if self
+            .peek_token()
+            .is_some_and(|t| matches!(t.value(), Token::Semicolon))
+        {
             None
         } else {
             Some(self.expression()?)
         };
-        if let Some(t) = self.peek_token() {
-            let Token::Semicolon = t.value() else {
-                return Err(t.co_locate(SyntaxError::ExpectedSemicolonAfterForCondition));
-            };
-            self.tokens.next();
-        }
+        self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedSemicolonAfterForCondition))?;
 
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedControlRightParen));
-        };
-        let increment = if let Token::RightParen = t.value() {
+        let increment = if self
+            .peek_token()
+            .is_some_and(|t| matches!(t.value(), Token::RightParen))
+        {
             None
         } else {
             Some(self.expression()?)
         };
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedControlRightParen));
-        };
-        let Token::RightParen = t.value() else {
-            return Err(t.co_locate(SyntaxError::ExpectedControlRightParen));
-        };
-        self.tokens.next();
+        self.next_token_if_or_err(|t| matches!(t, Token::RightParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedControlRightParen))?;
 
         let mut body = self.statement()?;
 
@@ -194,23 +169,13 @@ impl<'a> Parser<'a> {
     }
 
     fn while_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
-        };
-        let Token::LeftParen = t.value() else {
-            return Err(t.co_locate(SyntaxError::ExpectedControlLeftParen));
-        };
-        self.tokens.next();
+        self.next_token_if_or_err(|t| matches!(t, Token::LeftParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedControlLeftParen))?;
 
         let condition = self.expression()?;
 
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
-        };
-        let Token::RightParen = t.value() else {
-            return Err(t.co_locate(SyntaxError::ExpectedControlRightParen));
-        };
-        self.tokens.next();
+        self.next_token_if_or_err(|t| matches!(t, Token::RightParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedControlRightParen))?;
 
         let body = self.statement()?;
 
@@ -218,34 +183,22 @@ impl<'a> Parser<'a> {
     }
 
     fn if_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedControlLeftParen));
-        };
-        let Token::LeftParen = t.value() else {
-            return Err(t.co_locate(SyntaxError::ExpectedControlLeftParen));
-        };
-        self.tokens.next();
+        self.next_token_if_or_err(|t| matches!(t, Token::LeftParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedControlLeftParen))?;
+
         let condition = self.expression()?;
 
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::ExpectedControlRightParen));
-        };
-        let Token::RightParen = t.value() else {
-            return Err(t.co_locate(SyntaxError::ExpectedControlRightParen));
-        };
-        self.tokens.next();
+        self.next_token_if_or_err(|t| matches!(t, Token::RightParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedControlRightParen))?;
 
         let branch_then = self.statement()?;
-        let branch_else = if let Some(t) = self.peek_token() {
-            if let Token::Else = t.value() {
-                self.tokens.next();
-                Some(self.statement()?)
-            } else {
-                None
-            }
+
+        let branch_else = if self.next_token_if(|t| matches!(t, Token::Else)).is_some() {
+            Some(self.statement()?)
         } else {
             None
         };
+
         Ok(Stmt::If(
             condition,
             Box::new(branch_then),
@@ -255,42 +208,31 @@ impl<'a> Parser<'a> {
 
     fn print_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         let value = self.expression()?;
-        match self.peek_token() {
-            Some(t) => self
-                .next_token_if(|t| matches!(t.value(), Token::Semicolon))
-                .map(|_| Ok(Stmt::Print(value)))
-                .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnterminatedExprStatement))),
-            None => Err(Located::at_eof(SyntaxError::UnterminatedExprStatement)),
-        }
+
+        self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
+            .and(Ok(Stmt::Print(value)))
+            .map_err(|e| e.co_locate(SyntaxError::UnterminatedExprStatement))
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         let expr = self.expression()?;
-        match self.peek_token() {
-            Some(t) => self
-                .next_token_if(|t| matches!(t.value(), Token::Semicolon))
-                .map(|_| Ok(Stmt::Expression(expr)))
-                .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnterminatedExprStatement))),
-            None => Err(Located::at_eof(SyntaxError::UnterminatedExprStatement)),
-        }
+
+        self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
+            .and(Ok(Stmt::Expression(expr)))
+            .map_err(|e| e.co_locate(SyntaxError::UnterminatedExprStatement))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, Located<SyntaxError>> {
         let mut statements = Vec::new();
-        while let Some(t) = self.peek_token() {
-            if let Token::RightBrace = t.value() {
-                break;
-            }
+        while self
+            .peek_token()
+            .is_some_and(|t| !matches!(t.value(), Token::RightBrace))
+        {
             statements.push(self.declaration()?);
         }
 
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::UnterminatedBlock));
-        };
-        let Token::RightBrace = t.value() else {
-            return Err(t.co_locate(SyntaxError::UnterminatedBlock));
-        };
-        self.tokens.next();
+        self.next_token_if_or_err(|t| matches!(t, Token::RightBrace))
+            .map_err(|e| e.co_locate(SyntaxError::UnterminatedBlock))?;
 
         Ok(statements)
     }
@@ -302,7 +244,7 @@ impl<'a> Parser<'a> {
     fn assignment(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let expr = self.or()?;
 
-        if let Some(t) = self.next_token_if(|t| matches!(t.value(), Token::Equal)) {
+        if let Some(t) = self.next_token_if(|t| matches!(t, Token::Equal)) {
             let value = self.assignment()?;
             if let Expr::Variable(name) = expr {
                 Ok(Expr::Assign(name, Box::new(value)))
@@ -318,15 +260,10 @@ impl<'a> Parser<'a> {
     fn or(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.and()?;
 
-        while let Some(t) = self.peek_token() {
-            if let Token::Or = t.value() {
-                let operator = t.clone();
-                self.tokens.next();
-                let right = self.and()?;
-                expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
-            } else {
-                break;
-            }
+        while let Some(t) = self.next_token_if(|t| matches!(t, Token::Or)) {
+            let operator = t.clone();
+            let right = self.and()?;
+            expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
         }
 
         Ok(expr)
@@ -335,15 +272,10 @@ impl<'a> Parser<'a> {
     fn and(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.equality()?;
 
-        while let Some(t) = self.peek_token() {
-            if let Token::And = t.value() {
-                let operator = t.clone();
-                self.tokens.next();
-                let right = self.equality()?;
-                expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
-            } else {
-                break;
-            }
+        while let Some(t) = self.next_token_if(|t| matches!(t, Token::And)) {
+            let operator = t.clone();
+            let right = self.equality()?;
+            expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
         }
 
         Ok(expr)
@@ -352,14 +284,10 @@ impl<'a> Parser<'a> {
     fn equality(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.comparison()?;
 
-        while let Some(t) = self.peek_token() {
-            if let Token::BangEqual | Token::EqualEqual = t.value() {
-                self.tokens.next();
-                let right = self.comparison()?;
-                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
-            } else {
-                break;
-            }
+        while let Some(t) = self.next_token_if(|t| matches!(t, Token::Bang | Token::BangEqual)) {
+            let operator = t.clone();
+            let right = self.comparison()?;
+            expr = Expr::Binary(Box::new(expr), operator, Box::new(right));
         }
 
         Ok(expr)
@@ -368,15 +296,15 @@ impl<'a> Parser<'a> {
     fn comparison(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.term()?;
 
-        while let Some(t) = self.peek_token() {
-            if let Token::Greater | Token::GreaterEqual | Token::Less | Token::LessEqual = t.value()
-            {
-                self.tokens.next();
-                let right = self.term()?;
-                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
-            } else {
-                break;
-            }
+        while let Some(t) = self.next_token_if(|t| {
+            matches!(
+                t,
+                Token::Greater | Token::GreaterEqual | Token::Less | Token::LessEqual
+            )
+        }) {
+            let operator = t.clone();
+            let right = self.term()?;
+            expr = Expr::Binary(Box::new(expr), operator, Box::new(right))
         }
 
         Ok(expr)
@@ -385,14 +313,10 @@ impl<'a> Parser<'a> {
     fn term(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.factor()?;
 
-        while let Some(t) = self.peek_token() {
-            if let Token::Minus | Token::Plus = t.value() {
-                self.tokens.next();
-                let right = self.factor()?;
-                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
-            } else {
-                break;
-            }
+        while let Some(t) = self.next_token_if(|t| matches!(t, Token::Minus | Token::Plus)) {
+            let operator = t.clone();
+            let right = self.factor()?;
+            expr = Expr::Binary(Box::new(expr), operator, Box::new(right))
         }
 
         Ok(expr)
@@ -401,26 +325,20 @@ impl<'a> Parser<'a> {
     fn factor(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.unary()?;
 
-        while let Some(t) = self.peek_token() {
-            if let Token::Slash | Token::Star = t.value() {
-                self.tokens.next();
-                let right = self.unary()?;
-                expr = Expr::Binary(Box::new(expr), t.clone(), Box::new(right))
-            } else {
-                break;
-            }
+        while let Some(t) = self.next_token_if(|t| matches!(t, Token::Slash | Token::Star)) {
+            let operator = t.clone();
+            let right = self.unary()?;
+            expr = Expr::Binary(Box::new(expr), operator, Box::new(right))
         }
 
         Ok(expr)
     }
 
     fn unary(&mut self) -> Result<Expr, Located<SyntaxError>> {
-        if let Some(t) = self.peek_token() {
-            if let Token::Bang | Token::Minus = t.value() {
-                self.tokens.next();
-                let right = self.unary()?;
-                return Ok(Expr::Unary(t.clone(), Box::new(right)));
-            }
+        if let Some(t) = self.next_token_if(|t| matches!(t, Token::Bang | Token::Minus)) {
+            let operator = t.clone();
+            let right = self.unary()?;
+            return Ok(Expr::Unary(operator, Box::new(right)));
         }
 
         self.call()
@@ -428,38 +346,40 @@ impl<'a> Parser<'a> {
 
     fn finish_call(&mut self, callee: Expr) -> Result<Expr, Located<SyntaxError>> {
         let mut arguments = Vec::new();
-        let Some(t) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::UnclosedArgumentsList));
-        };
-        loop {
-            arguments.push(self.expression()?);
-            let Some(_) = self.next_token_if(|t| matches!(t.value(), Token::Comma)) else {
-                break;
-            };
+        if !self
+            .peek_token()
+            .is_some_and(|t| matches!(t.value(), Token::RightParen))
+        {
+            loop {
+                arguments.push(self.expression()?);
+                if self.next_token_if(|t| matches!(t, Token::Comma)).is_none() {
+                    break;
+                }
+            }
         }
-        let Some(paren) = self.peek_token() else {
-            return Err(Located::at_eof(SyntaxError::UnclosedArgumentsList));
-        };
-        let Token::RightParen = t.value() else {
-            return Err(t.co_locate(SyntaxError::UnclosedArgumentsList));
-        };
-        self.tokens.next();
+
+        let paren = self
+            .next_token_if_or_err(|t| matches!(t, Token::RightParen))
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedArgumentsList))?;
 
         Ok(Expr::Call(Box::new(callee), paren, arguments))
     }
 
     fn call(&mut self) -> Result<Expr, Located<SyntaxError>> {
         let mut expr = self.primary()?;
+
         loop {
-            if let Some(_) = self.next_token_if(|t| matches!(t.value(), Token::LeftParen)) {
+            if let Some(_) = self.next_token_if(|t| matches!(t, Token::LeftParen)) {
                 expr = self.finish_call(expr)?;
             } else {
                 break;
             }
         }
+
         Ok(expr)
     }
 
+    // TODO: refactoring
     fn primary(&mut self) -> Result<Expr, Located<SyntaxError>> {
         if let Some(t) = self.peek_token() {
             match t.value() {
@@ -492,7 +412,7 @@ impl<'a> Parser<'a> {
                     let expr = self.expression()?;
                     match self.peek_token() {
                         Some(t) => self
-                            .next_token_if(|t| matches!(t.value(), Token::RightParen))
+                            .next_token_if(|t| matches!(t, Token::RightParen))
                             .map(|_| Ok(Expr::Grouping(Box::new(expr))))
                             .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnclosedGrouping))),
                         None => Err(Located::at_eof(SyntaxError::UnclosedGrouping)),
