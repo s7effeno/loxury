@@ -83,9 +83,9 @@ mod error {
         UnterminatedBlock,
         ExpectedControlLeftParen,
         ExpectedControlRightParen,
-        ExpectedSemiColonAfterForInit,
         ExpectedSemicolonAfterForCondition,
         UnclosedArgumentsList,
+        TooManyArguments,
     }
 
     impl Display for Syntax {
@@ -109,14 +109,14 @@ mod error {
                 Self::ExpectedControlRightParen => {
                     write!(f, "expected ')' before control statement body")
                 }
-                Self::ExpectedSemiColonAfterForInit => {
-                    write!(f, "expected ';' after for loop initializer")
-                }
                 Self::ExpectedSemicolonAfterForCondition => {
                     write!(f, "expected ';' after for loop condition")
                 }
                 Self::UnclosedArgumentsList => {
                     write!(f, "expected ')' after argument list")
+                }
+                Self::TooManyArguments => {
+                    write!(f, "can't have more than 255 arguments")
                 }
             }
         }

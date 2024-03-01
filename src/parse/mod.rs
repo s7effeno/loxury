@@ -69,7 +69,6 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.statement())
     }
 
-    // TODO: write this shit better
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
         let t = self
             .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
@@ -351,6 +350,10 @@ impl<'a> Parser<'a> {
             .is_some_and(|t| matches!(t.value(), Token::RightParen))
         {
             loop {
+                if arguments.len() >= 255 {
+                    let t = self.peek_token().unwrap();
+                    self.error(t.co_locate(SyntaxError::TooManyArguments));
+                }
                 arguments.push(self.expression()?);
                 if self.next_token_if(|t| matches!(t, Token::Comma)).is_none() {
                     break;
@@ -379,49 +382,37 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    // TODO: refactoring
     fn primary(&mut self) -> Result<Expr, Located<SyntaxError>> {
-        if let Some(t) = self.peek_token() {
-            match t.value() {
-                Token::False => {
-                    self.tokens.next();
-                    Ok(Expr::Literal(Literal::Boolean(false)))
-                }
-                Token::True => {
-                    self.tokens.next();
-                    Ok(Expr::Literal(Literal::Boolean(true)))
-                }
-                Token::Nil => {
-                    self.tokens.next();
-                    Ok(Expr::Literal(Literal::Nil))
-                }
-                Token::Number(n) => {
-                    self.tokens.next();
-                    Ok(Expr::Literal(Literal::Number(*n)))
-                }
-                Token::String(s) => {
-                    self.tokens.next();
-                    Ok(Expr::Literal(Literal::String(s.to_owned())))
-                }
-                Token::Identifier(i) => {
-                    self.tokens.next();
-                    Ok(Expr::Variable(t.co_locate(i.to_owned())))
-                }
-                Token::LeftParen => {
-                    self.tokens.next();
-                    let expr = self.expression()?;
-                    match self.peek_token() {
-                        Some(t) => self
-                            .next_token_if(|t| matches!(t, Token::RightParen))
-                            .map(|_| Ok(Expr::Grouping(Box::new(expr))))
-                            .unwrap_or_else(|| Err(t.co_locate(SyntaxError::UnclosedGrouping))),
-                        None => Err(Located::at_eof(SyntaxError::UnclosedGrouping)),
-                    }
-                }
-                _ => Err(t.co_locate(SyntaxError::ExpectedExpression)),
-            }
+        if self.next_token_if(|t| matches!(t, Token::False)).is_some() {
+            Ok(Expr::Literal(Literal::Boolean(false)))
+        } else if self.next_token_if(|t| matches!(t, Token::True)).is_some() {
+            Ok(Expr::Literal(Literal::Boolean(true)))
+        } else if self.next_token_if(|t| matches!(t, Token::Nil)).is_some() {
+            Ok(Expr::Literal(Literal::Nil))
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Number(_)))
+        {
+            let Token::Number(n) = t.value() else { unreachable!() };
+            Ok(Expr::Literal(Literal::Number(*n)))
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::String(_)))
+        {
+            let Token::String(s) = t.value() else { unreachable!() };
+            Ok(Expr::Literal(Literal::String(s.to_owned())))
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Identifier(_))) {
+            let Token::Identifier(i) = t.value() else { unreachable!() };
+            Ok(Expr::Variable(t.co_locate(i.to_owned())))
+        } else if self
+            .next_token_if(|t| matches!(t, Token::LeftParen))
+            .is_some()
+        {
+            let expr = self.expression()?;
+            self.next_token_if_or_err(|t| matches!(t, Token::RightParen))
+                .map_err(|e| e.co_locate(SyntaxError::UnclosedGrouping))?;
+            Ok(Expr::Grouping(Box::new(expr)))
         } else {
-            Err(Located::at_eof(SyntaxError::ExpectedExpression))
+            Err(self
+                .next_token_if_or_err(|_| false)
+                .map_err(|e| e.co_locate(SyntaxError::ExpectedExpression))
+                .unwrap_err())
         }
     }
 
