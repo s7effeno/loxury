@@ -145,3 +145,32 @@ mod error {
 
     impl Error for Runtime {}
 }
+
+trait LoxCallable {
+    fn call(&self, arguments: Vec<Object>) -> Object;
+    fn arity(&self) -> usize;
+}
+
+enum Object {
+    Boolean(bool),
+    Number(f64),
+    String(String),
+    Nil,
+    Function(Box<dyn LoxCallable>),
+}
+
+use crate::parse::Function;
+
+struct LoxFunction(Function);
+
+impl LoxCallable for LoxFunction {
+    fn call(&self, arguments: Vec<Object>) -> Object {
+        todo!()
+    }
+
+    fn arity(&self) -> usize {
+        self.0.arity()
+    }
+}
+
+struct ForeignFunction(fn (Vec<Object>) -> Object);

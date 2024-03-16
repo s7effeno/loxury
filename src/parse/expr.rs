@@ -1,13 +1,24 @@
 use crate::lex::Token;
 use crate::Located;
-use std::fmt::{Display, Formatter, Result};
+use super::Stmt;
+use std::fmt::{Display, Formatter, Result, Debug};
+use std::rc::Rc;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Literal {
     Boolean(bool),
     Number(f64),
     String(String),
     Nil,
+}
+
+impl Debug for Literal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            // Self::Function(name, _function, arity) => f.debug_tuple("Function").field(name).field(arity).finish(),
+            o => write!(f, "{:?}", o)
+        }
+    }
 }
 
 impl Display for Literal {
@@ -17,6 +28,7 @@ impl Display for Literal {
             Self::Number(v) => write!(f, "{}", v),
             Self::String(v) => write!(f, "{}", v),
             Self::Nil => write!(f, "nil"),
+            // Self::Function(name, _, _) => write!(f, "<fn {}>", name),
         }
     }
 }

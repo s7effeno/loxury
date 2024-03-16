@@ -39,6 +39,7 @@ impl Interpreter {
                 (Literal::Boolean(left), Literal::Boolean(right)) => left == right,
                 (Literal::Number(left), Literal::Number(right)) => left == right,
                 (Literal::String(left), Literal::String(right)) => left == right,
+                // TODO: add remaining checks
                 _ => false,
             }
         }
@@ -206,6 +207,7 @@ impl Interpreter {
                 }
                 Ok(())
             }
+            Stmt::Function(_) => todo!()
         }
     }
 

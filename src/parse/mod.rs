@@ -7,6 +7,7 @@ use crate::lex::{Lexer, Token};
 use crate::Located;
 pub use expr::{Expr, Literal};
 pub use stmt::Stmt;
+pub use stmt::Function;
 
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
