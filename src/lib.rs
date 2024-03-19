@@ -3,7 +3,7 @@ mod interpret;
 mod lex;
 mod parse;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter, Result};
+use std::fmt::{self, Debug, Display, Formatter};
 
 #[derive(Clone)]
 enum Position {
@@ -12,7 +12,7 @@ enum Position {
 }
 
 impl Display for Position {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Coords(row, col) => write!(f, "{}:{}", row, col),
             Self::Eof => write!(f, "eof"),
@@ -54,13 +54,13 @@ impl<T> Located<T> {
 }
 
 impl<D: Debug> Debug for Located<D> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {:?}", self.pos, self.value)
     }
 }
 
 impl<E: Error> Display for Located<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.pos, self.value)
     }
 }
@@ -73,36 +73,40 @@ mod error {
 
     #[derive(Debug, Clone)]
     pub enum Syntax {
-        UnterminatedString,
+        Unclosed,
         StrayCharacter(char),
         ExpectedExpression,
         UnclosedGrouping,
-        UnterminatedExprStatement,
+        UnClosedExprStatement,
         ExpectedVariableName,
+        ExpectedFunctionName,
         InvalidAssignmentTarget,
-        UnterminatedBlock,
+        UnclosedBlock,
+        UnopenedBlock,
         ExpectedControlLeftParen,
         ExpectedControlRightParen,
         ExpectedSemicolonAfterForCondition,
         UnclosedArgumentsList,
         TooManyArguments,
+        ExpectedFunctionLeftParen,
+        ExpectedParameterName,
     }
 
     impl Display for Syntax {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result {
             match self {
-                Self::UnterminatedString => write!(f, "expected '\"' at the end of string"),
+                Self::Unclosed => write!(f, "expected '\"' at the end of string"),
                 Self::StrayCharacter(c) => write!(f, "stray {} in program", c),
                 Self::ExpectedExpression => write!(f, "expected expression"),
                 Self::UnclosedGrouping => {
                     write!(f, "expected ')' at the end of grouping expression")
                 }
-                Self::UnterminatedExprStatement => {
+                Self::UnClosedExprStatement => {
                     write!(f, "expected ';' at the end of statement")
                 }
                 Self::ExpectedVariableName => write!(f, "expected variable name"),
                 Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
-                Self::UnterminatedBlock => write!(f, "expected '}}' at the end of block"),
+                Self::UnclosedBlock => write!(f, "expected '}}' at the end of block"),
                 Self::ExpectedControlLeftParen => {
                     write!(f, "expected '(' after control statement")
                 }
@@ -118,26 +122,44 @@ mod error {
                 Self::TooManyArguments => {
                     write!(f, "can't have more than 255 arguments")
                 }
+                Self::ExpectedFunctionName => {
+                    write!(f, "expected function name")
+                }
+                Self::ExpectedFunctionLeftParen => {
+                    write!(f, "expected '(' after function name")
+                }
+                Self::ExpectedParameterName => {
+                    write!(f, "expected parameter name")
+                }
+                Self::UnopenedBlock => {
+                    write!(f, "expected '{{' before block")
+                }
             }
         }
     }
 
     #[derive(Debug, Clone)]
     pub enum Runtime {
+        ExpectedNumber,
         ExpectedNumbers,
         ExpectedNumbersOrStrings,
         UndefinedVariable(String),
+        NotCallable,
     }
 
     impl Display for Runtime {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result {
             match self {
+                Self::ExpectedNumber => write!(f, "operand must be number"),
                 Self::ExpectedNumbers => write!(f, "operands must be numbers"),
                 Self::ExpectedNumbersOrStrings => {
                     write!(f, "operands must be either all numbers or all strings")
                 }
                 Self::UndefinedVariable(s) => {
                     write!(f, "variable '{}' is not defined", s)
+                }
+                Self::NotCallable => {
+                    write!(f, "can only call functions and classes")
                 }
             }
         }
@@ -146,31 +168,71 @@ mod error {
     impl Error for Runtime {}
 }
 
-trait LoxCallable {
-    fn call(&self, arguments: Vec<Object>) -> Object;
-    fn arity(&self) -> usize;
+use interpret::{Environment, Interpreter};
+
+use crate::parse::Function;
+use std::rc::Rc;
+
+enum LoxFunction {
+    User {
+        declaration: Function,
+    },
+    Foreign {
+        arity: usize,
+        f: fn(Vec<&Object>) -> Object,
+    },
 }
 
+impl LoxFunction {
+    fn arity(&self) -> usize {
+        match self {
+            Self::User { declaration } => declaration.params.len(),
+            Self::Foreign { arity, .. } => *arity,
+        }
+    }
+
+    fn call(
+        &self,
+        interpreter: &Environment,
+        arguments: Vec<Object>,
+    ) -> Result<Object, error::Runtime> {
+        match self {
+            Self::User { declaration } => {
+                todo!()
+            }
+            Self::Foreign { arity, f } => {
+                todo!()
+            }
+        }
+    }
+}
+
+impl Display for LoxFunction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::User { declaration } => write!(f, "<fn {}>", declaration.name),
+            Self::Foreign { .. } => write!(f, "<foreign fn>"),
+        }
+    }
+}
+
+#[derive(Clone)]
 enum Object {
     Boolean(bool),
     Number(f64),
     String(String),
     Nil,
-    Function(Box<dyn LoxCallable>),
+    Function(Rc<LoxFunction>),
 }
 
-use crate::parse::Function;
-
-struct LoxFunction(Function);
-
-impl LoxCallable for LoxFunction {
-    fn call(&self, arguments: Vec<Object>) -> Object {
-        todo!()
-    }
-
-    fn arity(&self) -> usize {
-        self.0.arity()
+impl Display for Object {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Boolean(v) => write!(f, "{}", v),
+            Self::Number(v) => write!(f, "{}", v),
+            Self::String(v) => write!(f, "{}", v),
+            Self::Nil => write!(f, "nil"),
+            Self::Function(v) => write!(f, "{}", v),
+        }
     }
 }
-
-struct ForeignFunction(fn (Vec<Object>) -> Object);

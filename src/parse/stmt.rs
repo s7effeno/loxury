@@ -14,13 +14,7 @@ pub enum Stmt {
 
 #[derive(Debug)]
 pub struct Function {
-    name: String,
-    params: Vec<String>,
-    body: Vec<Stmt>,
-}
-
-impl Function {
-    pub fn arity(&self) -> usize {
-        self.params.len()
-    }
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Vec<Stmt>,
 }

@@ -1,11 +1,12 @@
 use crate::error::Runtime as RuntimeError;
 use crate::parse::Literal;
 use crate::Located;
+use crate::Object;
 use std::collections::HashMap;
 use std::mem;
 
 pub struct Environment {
-    values: HashMap<String, Literal>,
+    values: HashMap<String, Object>,
     enclosing: Option<Box<Environment>>,
 }
 
@@ -32,11 +33,11 @@ impl Environment {
         }
     }
 
-    pub fn define(&mut self, name: &str, value: Literal) {
+    pub fn define(&mut self, name: &str, value: Object) {
         self.values.insert(name.to_owned(), value);
     }
 
-    pub fn assign(&mut self, name: &str, value: Literal) -> Result<(), ()> {
+    pub fn assign(&mut self, name: &str, value: Object) -> Result<(), ()> {
         match self.values.get_mut(name) {
             Some(v) => {
                 *v = value;
@@ -49,7 +50,7 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, name: &str) -> Result<&Literal, ()> {
+    pub fn get(&self, name: &str) -> Result<&Object, ()> {
         match self.values.get(name) {
             Some(v) => Ok(v),
             None => match &self.enclosing {

@@ -217,7 +217,7 @@ impl Iterator for Lexer<'_> {
                     if let Some('"') = self.source.next() {
                         self.local_token(Token::String(str))
                     } else {
-                        Err(Located::at_eof(SyntaxError::UnterminatedString))
+                        Err(Located::at_eof(SyntaxError::Unclosed))
                     }
                 }
                 c if c.is_numeric() => {
@@ -573,7 +573,7 @@ mod tests {
     fn unterminated_string() {
         assert!(matches!(
             Lexer::new("\"").next().unwrap().err().unwrap().value(),
-            SyntaxError::UnterminatedString
+            SyntaxError::Unclosed
         ))
     }
 

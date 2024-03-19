@@ -1,10 +1,12 @@
+use super::Stmt;
 use crate::lex::Token;
 use crate::Located;
-use super::Stmt;
-use std::fmt::{Display, Formatter, Result, Debug};
+use crate::Object;
+use std::convert::Into;
+use std::fmt::{Debug, Display, Formatter, Result};
 use std::rc::Rc;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Literal {
     Boolean(bool),
     Number(f64),
@@ -12,11 +14,13 @@ pub enum Literal {
     Nil,
 }
 
-impl Debug for Literal {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+impl Into<Object> for Literal {
+    fn into(self) -> Object {
         match self {
-            // Self::Function(name, _function, arity) => f.debug_tuple("Function").field(name).field(arity).finish(),
-            o => write!(f, "{:?}", o)
+            Self::Boolean(v) => Object::Boolean(v),
+            Self::Number(v) => Object::Number(v),
+            Self::String(v) => Object::String(v),
+            Self::Nil => Object::Nil,
         }
     }
 }

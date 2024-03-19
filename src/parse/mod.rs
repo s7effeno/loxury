@@ -6,8 +6,9 @@ use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
 use crate::Located;
 pub use expr::{Expr, Literal};
-pub use stmt::Stmt;
 pub use stmt::Function;
+pub use stmt::Stmt;
+use crate::LoxFunction;
 
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
@@ -65,9 +66,13 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        self.next_token_if(|t| matches!(t, Token::Var))
-            .map(|_| self.var_declaration())
-            .unwrap_or_else(|| self.statement())
+        if self.next_token_if(|t| matches!(t, Token::Fun)).is_some() {
+            self.function("function")
+        } else if self.next_token_if(|t| matches!(t, Token::Var)).is_some() {
+            self.var_declaration()
+        } else {
+            self.statement()
+        }
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -85,7 +90,7 @@ impl<'a> Parser<'a> {
         };
 
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
-            .map_err(|e| e.co_locate(SyntaxError::UnterminatedExprStatement))?;
+            .map_err(|e| e.co_locate(SyntaxError::UnClosedExprStatement))?;
 
         Ok(Stmt::Var(t.co_locate(identifier.to_owned()), initializer))
     }
@@ -211,7 +216,7 @@ impl<'a> Parser<'a> {
 
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
             .and(Ok(Stmt::Print(value)))
-            .map_err(|e| e.co_locate(SyntaxError::UnterminatedExprStatement))
+            .map_err(|e| e.co_locate(SyntaxError::UnClosedExprStatement))
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -219,7 +224,53 @@ impl<'a> Parser<'a> {
 
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
             .and(Ok(Stmt::Expression(expr)))
-            .map_err(|e| e.co_locate(SyntaxError::UnterminatedExprStatement))
+            .map_err(|e| e.co_locate(SyntaxError::UnClosedExprStatement))
+    }
+
+    fn function(&mut self, kind: &str) -> Result<Stmt, Located<SyntaxError>> {
+        println!("YOO");
+        let t = self
+            .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionName))?;
+        let Token::Identifier(name) = t.value() else {
+            unreachable!()
+        };
+
+        self.next_token_if_or_err(|t| matches!(t, Token::LeftParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionLeftParen))?;
+
+        let mut params = Vec::new();
+
+        if self
+            .peek_token()
+            .is_some_and(|t| !matches!(t.value(), Token::RightParen))
+        {
+            loop {
+                let t = self
+                    .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+                    .map_err(|e| e.co_locate(SyntaxError::ExpectedParameterName))?;
+                let Token::Identifier(name) = t.value() else { unreachable!() };
+                params.push(name.to_owned());
+                if self.next_token_if(|t| matches!(t, Token::Comma)).is_none() {
+                    break;
+                }
+            }
+        }
+
+        self.next_token_if_or_err(|t| matches!(t, Token::RightParen))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedControlRightParen))?;
+
+
+        self.next_token_if_or_err(|t| matches!(t, Token::LeftBrace))
+            .map_err(|e| e.co_locate(SyntaxError::UnopenedBlock))?;
+
+        let body = self.block()?;
+        Ok(Stmt::Function(Function {
+                name: name.to_owned(),
+                body,
+                params,
+            }
+        ))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, Located<SyntaxError>> {
@@ -232,7 +283,7 @@ impl<'a> Parser<'a> {
         }
 
         self.next_token_if_or_err(|t| matches!(t, Token::RightBrace))
-            .map_err(|e| e.co_locate(SyntaxError::UnterminatedBlock))?;
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedBlock))?;
 
         Ok(statements)
     }
@@ -390,16 +441,20 @@ impl<'a> Parser<'a> {
             Ok(Expr::Literal(Literal::Boolean(true)))
         } else if self.next_token_if(|t| matches!(t, Token::Nil)).is_some() {
             Ok(Expr::Literal(Literal::Nil))
-        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Number(_)))
-        {
-            let Token::Number(n) = t.value() else { unreachable!() };
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Number(_))) {
+            let Token::Number(n) = t.value() else {
+                unreachable!()
+            };
             Ok(Expr::Literal(Literal::Number(*n)))
-        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::String(_)))
-        {
-            let Token::String(s) = t.value() else { unreachable!() };
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::String(_))) {
+            let Token::String(s) = t.value() else {
+                unreachable!()
+            };
             Ok(Expr::Literal(Literal::String(s.to_owned())))
         } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Identifier(_))) {
-            let Token::Identifier(i) = t.value() else { unreachable!() };
+            let Token::Identifier(i) = t.value() else {
+                unreachable!()
+            };
             Ok(Expr::Variable(t.co_locate(i.to_owned())))
         } else if self
             .next_token_if(|t| matches!(t, Token::LeftParen))
@@ -481,5 +536,18 @@ mod tests {
         println!("{:#?}", p.next());
         println!("{:#?}", p.next());
         println!("{:?}", p.errors);
+    }
+
+    #[test]
+    fn bbb() {
+        let mut p = Parser::new(Lexer::new(
+            "
+            fun add(a, b, c) {
+                print a + b + c;
+            }
+            ",
+        ));
+        println!("{:#?}", p.next());
+        println!("{:#?}", p.next());
     }
 }

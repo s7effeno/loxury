@@ -2,62 +2,81 @@ use crate::error::Runtime as RuntimeError;
 use crate::lex::Token;
 use crate::parse::{Expr, Literal, Stmt};
 use crate::Located;
+use crate::LoxFunction;
+use crate::Object;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::UNIX_EPOCH;
 
 mod environment;
-use environment::Environment;
+pub use environment::Environment;
 
 pub struct Interpreter {
-    environment: Environment,
+    globals: Rc<RefCell<Environment>>,
+    environment: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
     fn new() -> Self {
+        let mut globals = Environment::new();
+        globals.define(
+            "clock",
+            Object::Function(Rc::new(LoxFunction::Foreign {
+                arity: 0,
+                f: |_| Object::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64),
+            })),
+        );
+
+        let globals = Rc::new(RefCell::new(globals.into()));
+        let environment = globals.clone();
         Self {
-            environment: Environment::new(),
+            globals,
+            environment,
         }
     }
 
-    fn is_truthy(val: Literal) -> bool {
+    fn is_truthy(val: &Object) -> bool {
         match val {
-            Literal::Nil => false,
-            Literal::Boolean(b) => b,
+            Object::Nil => false,
+            Object::Boolean(b) => *b,
             _ => true,
         }
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<Literal, Located<RuntimeError>> {
-        Self::_evaluate(expr, &mut self.environment)
+    fn evaluate(&mut self, expr: &Expr) -> Result<Object, Located<RuntimeError>> {
+        Self::_evaluate(expr, &mut self.environment.borrow_mut())
     }
 
     fn _evaluate(
         expr: &Expr,
         environment: &mut Environment,
-    ) -> Result<Literal, Located<RuntimeError>> {
-        fn is_equal(left: Literal, right: Literal) -> bool {
+    ) -> Result<Object, Located<RuntimeError>> {
+        // maybe implement directly in object?
+        fn is_equal(left: Object, right: Object) -> bool {
             match (left, right) {
-                (Literal::Nil, Literal::Nil) => true,
-                (Literal::Boolean(left), Literal::Boolean(right)) => left == right,
-                (Literal::Number(left), Literal::Number(right)) => left == right,
-                (Literal::String(left), Literal::String(right)) => left == right,
+                (Object::Nil, Object::Nil) => true,
+                (Object::Boolean(left), Object::Boolean(right)) => left == right,
+                (Object::Number(left), Object::Number(right)) => left == right,
+                (Object::String(left), Object::String(right)) => left == right,
                 // TODO: add remaining checks
                 _ => false,
             }
         }
 
         match expr {
-            Expr::Literal(e) => Ok(e.clone()),
+            Expr::Literal(e) => Ok(e.clone().into()),
             Expr::Grouping(e) => Self::_evaluate(e, environment),
             Expr::Unary(op, e) => {
                 let right = Self::_evaluate(e, environment)?;
                 match op.value() {
                     Token::Minus => {
-                        if let Literal::Number(n) = right {
-                            Ok(Literal::Number(-n))
+                        if let Object::Number(n) = right {
+                            Ok(Object::Number(-n))
                         } else {
-                            panic!();
+                            Err(op.co_locate(RuntimeError::ExpectedNumber))
                         }
                     }
-                    Token::Bang => Ok(Literal::Boolean(!Self::is_truthy(right))),
+                    Token::Bang => Ok(Object::Boolean(!Self::is_truthy(&right))),
                     _ => unreachable!(),
                 }
             }
@@ -66,61 +85,61 @@ impl Interpreter {
                 let right = Self::_evaluate(r, environment)?;
                 match op.value() {
                     Token::Greater => {
-                        if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
-                            Ok(Literal::Boolean(left > right))
+                        if let (Object::Number(left), Object::Number(right)) = (left, right) {
+                            Ok(Object::Boolean(left > right))
                         } else {
                             Err(op.co_locate(RuntimeError::ExpectedNumbers))
                         }
                     }
                     Token::GreaterEqual => {
-                        if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
-                            Ok(Literal::Boolean(left >= right))
+                        if let (Object::Number(left), Object::Number(right)) = (left, right) {
+                            Ok(Object::Boolean(left >= right))
                         } else {
                             Err(op.co_locate(RuntimeError::ExpectedNumbers))
                         }
                     }
                     Token::Less => {
-                        if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
-                            Ok(Literal::Boolean(left < right))
+                        if let (Object::Number(left), Object::Number(right)) = (left, right) {
+                            Ok(Object::Boolean(left < right))
                         } else {
                             Err(op.co_locate(RuntimeError::ExpectedNumbers))
                         }
                     }
                     Token::LessEqual => {
-                        if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
-                            Ok(Literal::Boolean(left <= right))
+                        if let (Object::Number(left), Object::Number(right)) = (left, right) {
+                            Ok(Object::Boolean(left <= right))
                         } else {
                             Err(op.co_locate(RuntimeError::ExpectedNumbers))
                         }
                     }
                     Token::Minus => {
-                        if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
-                            Ok(Literal::Number(left - right))
+                        if let (Object::Number(left), Object::Number(right)) = (left, right) {
+                            Ok(Object::Number(left - right))
                         } else {
                             Err(op.co_locate(RuntimeError::ExpectedNumbers))
                         }
                     }
-                    Token::BangEqual => Ok(Literal::Boolean(!is_equal(left, right))),
-                    Token::EqualEqual => Ok(Literal::Boolean(is_equal(left, right))),
+                    Token::BangEqual => Ok(Object::Boolean(!is_equal(left, right))),
+                    Token::EqualEqual => Ok(Object::Boolean(is_equal(left, right))),
                     Token::Plus => match (left, right) {
-                        (Literal::Number(left), Literal::Number(right)) => {
-                            Ok(Literal::Number(left + right))
+                        (Object::Number(left), Object::Number(right)) => {
+                            Ok(Object::Number(left + right))
                         }
-                        (Literal::String(left), Literal::String(right)) => {
-                            Ok(Literal::String(left + &right))
+                        (Object::String(left), Object::String(right)) => {
+                            Ok(Object::String(left + &right))
                         }
                         _ => Err(op.co_locate(RuntimeError::ExpectedNumbersOrStrings)),
                     },
                     Token::Slash => {
-                        if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
-                            Ok(Literal::Number(left / right))
+                        if let (Object::Number(left), Object::Number(right)) = (left, right) {
+                            Ok(Object::Number(left / right))
                         } else {
                             Err(op.co_locate(RuntimeError::ExpectedNumbers))
                         }
                     }
                     Token::Star => {
-                        if let (Literal::Number(left), Literal::Number(right)) = (left, right) {
-                            Ok(Literal::Number(left * right))
+                        if let (Object::Number(left), Object::Number(right)) = (left, right) {
+                            Ok(Object::Number(left * right))
                         } else {
                             Err(op.co_locate(RuntimeError::ExpectedNumbers))
                         }
@@ -148,23 +167,34 @@ impl Interpreter {
             Expr::Logical(l, op, r) => {
                 let left = Self::_evaluate(l, environment)?;
                 if let Token::Or = op.value() {
-                    if Self::is_truthy(left.clone()) {
+                    if Self::is_truthy(&left) {
                         return Ok(left);
                     }
                 } else {
-                    if !Self::is_truthy(left.clone()) {
+                    if !Self::is_truthy(&left) {
                         return Ok(left);
                     }
                 }
 
                 Self::_evaluate(r, environment)
             }
-            Expr::Call(_, _, _) => todo!(),
+            Expr::Call(callee, paren, args) => {
+                let callee = Self::_evaluate(callee, environment)?;
+                let mut expanded_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    expanded_args.push(Self::_evaluate(arg, environment)?);
+                }
+                let Object::Function(f) = callee else {
+                    return Err(paren.co_locate(RuntimeError::NotCallable));
+                };
+                f.call(environment, expanded_args)
+                    .map_err(|e| paren.co_locate(e))
+            }
         }
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<(), Located<RuntimeError>> {
-        Self::_execute(stmt, &mut self.environment)
+        Self::_execute(stmt, &mut self.environment.borrow_mut())
     }
 
     fn _execute(stmt: &Stmt, environment: &mut Environment) -> Result<(), Located<RuntimeError>> {
@@ -186,11 +216,11 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Block(b) => {
-                Self::execute_block(b, environment);
+                Self::execute_block(b, environment)?;
                 Ok(())
             }
             Stmt::If(cond, branch_then, branch_else) => {
-                if Self::is_truthy(Self::_evaluate(&cond, environment)?) {
+                if Self::is_truthy(&Self::_evaluate(&cond, environment)?) {
                     Self::_execute(branch_then, environment)
                 } else {
                     if let Some(branch_else) = branch_else {
@@ -202,18 +232,28 @@ impl Interpreter {
                 }
             }
             Stmt::While(cond, body) => {
-                while Self::is_truthy(Self::_evaluate(&cond, environment)?) {
+                while Self::is_truthy(&Self::_evaluate(&cond, environment)?) {
                     Self::_execute(body, environment)?;
                 }
                 Ok(())
             }
-            Stmt::Function(_) => todo!()
+            Stmt::Function(_) => todo!(),
         }
     }
 
-    fn execute_block(statements: &Vec<Stmt>, environment: &mut Environment) {
+    fn execute_block(
+        statements: &Vec<Stmt>,
+        environment: &mut Environment,
+    ) -> Result<(), Located<RuntimeError>> {
         environment.nest();
-        for statement in statements {}
+        for statement in statements {
+            if let Err(e) = Self::_execute(statement, environment) {
+                environment.unnest().unwrap();
+                return Err(e);
+            }
+        }
+        environment.unnest().unwrap();
+        Ok(())
     }
 }
 
