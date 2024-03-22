@@ -1,7 +1,8 @@
 use super::expr::Expr;
 use crate::Located;
+use std::rc::Rc;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Stmt {
     Block(Vec<Stmt>),
     Expression(Expr),
@@ -12,7 +13,7 @@ pub enum Stmt {
     While(Expr, Box<Stmt>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Function {
     pub name: String,
     pub params: Vec<String>,

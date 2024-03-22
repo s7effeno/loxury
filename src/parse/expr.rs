@@ -37,7 +37,7 @@ impl Display for Literal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Assign(Located<String>, Box<Expr>),
     Binary(Box<Expr>, Located<Token>, Box<Expr>),

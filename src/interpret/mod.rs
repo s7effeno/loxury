@@ -21,10 +21,13 @@ impl Interpreter {
         let mut globals = Environment::new();
         globals.define(
             "clock",
-            Object::Function(Rc::new(LoxFunction::Foreign {
-                arity: 0,
-                f: |_| Object::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64),
-            })),
+            Object::Function(
+                LoxFunction::Foreign {
+                    arity: 0,
+                    f: |_| Object::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64),
+                }
+                .into(),
+            ),
         );
 
         let globals = Rc::new(RefCell::new(globals.into()));
@@ -187,8 +190,12 @@ impl Interpreter {
                 let Object::Function(f) = callee else {
                     return Err(paren.co_locate(RuntimeError::NotCallable));
                 };
+                let expected = f.arity();
+                let actual = args.len() as u8;
+                if expected != actual {
+                    return Err(paren.co_locate(RuntimeError::WrongArity(expected, actual)));
+                }
                 f.call(environment, expanded_args)
-                    .map_err(|e| paren.co_locate(e))
             }
         }
     }
@@ -237,11 +244,22 @@ impl Interpreter {
                 }
                 Ok(())
             }
-            Stmt::Function(_) => todo!(),
+            Stmt::Function(f) => {
+                environment.define(
+                    &f.name,
+                    Object::Function(
+                        LoxFunction::User {
+                            declaration: f.clone(),
+                        }
+                        .into(),
+                    ),
+                );
+                Ok(())
+            }
         }
     }
 
-    fn execute_block(
+    pub fn execute_block(
         statements: &Vec<Stmt>,
         environment: &mut Environment,
     ) -> Result<(), Located<RuntimeError>> {
@@ -282,6 +300,15 @@ mod tests {
         println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));
+        println!("{:?}", i.execute(&p.next().unwrap()));
+    }
+
+    #[test]
+    fn functions() {
+        let mut p = Parser::new(Lexer::new(
+            "print clock();"
+        ));
+        let mut i = Interpreter::new();
         println!("{:?}", i.execute(&p.next().unwrap()));
     }
 }

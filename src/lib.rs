@@ -145,6 +145,7 @@ mod error {
         ExpectedNumbersOrStrings,
         UndefinedVariable(String),
         NotCallable,
+        WrongArity(u8, u8),
     }
 
     impl Display for Runtime {
@@ -161,6 +162,9 @@ mod error {
                 Self::NotCallable => {
                     write!(f, "can only call functions and classes")
                 }
+                Self::WrongArity(expected, actual) => {
+                    write!(f, "expected {} arguments, got {}", expected, actual)
+                }
             }
         }
     }
@@ -173,36 +177,43 @@ use interpret::{Environment, Interpreter};
 use crate::parse::Function;
 use std::rc::Rc;
 
+#[derive(Clone)]
 enum LoxFunction {
     User {
         declaration: Function,
     },
     Foreign {
-        arity: usize,
-        f: fn(Vec<&Object>) -> Object,
+        arity: u8,
+        f: fn(Vec<Object>) -> Object,
     },
 }
 
 impl LoxFunction {
-    fn arity(&self) -> usize {
+    fn arity(&self) -> u8 {
         match self {
-            Self::User { declaration } => declaration.params.len(),
+            Self::User { declaration } => declaration.params.len() as u8,
             Self::Foreign { arity, .. } => *arity,
         }
     }
 
     fn call(
         &self,
-        interpreter: &Environment,
+        environment: &mut Environment,
         arguments: Vec<Object>,
-    ) -> Result<Object, error::Runtime> {
+    ) -> Result<Object, Located<error::Runtime>> {
+        environment.nest();
         match self {
             Self::User { declaration } => {
-                todo!()
+                environment.nest();
+                for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
+                    environment.define(name, value);
+                }
+                Interpreter::execute_block(&declaration.body, environment)?;
+                environment.unnest().unwrap();
+                // ?
+                Ok(Object::Nil)
             }
-            Self::Foreign { arity, f } => {
-                todo!()
-            }
+            Self::Foreign { arity, f } => Ok(f(arguments)),
         }
     }
 }

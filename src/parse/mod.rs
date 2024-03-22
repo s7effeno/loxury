@@ -5,10 +5,10 @@ use std::iter::Peekable;
 use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
 use crate::Located;
+use crate::LoxFunction;
 pub use expr::{Expr, Literal};
 pub use stmt::Function;
 pub use stmt::Stmt;
-use crate::LoxFunction;
 
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
@@ -249,7 +249,9 @@ impl<'a> Parser<'a> {
                 let t = self
                     .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
                     .map_err(|e| e.co_locate(SyntaxError::ExpectedParameterName))?;
-                let Token::Identifier(name) = t.value() else { unreachable!() };
+                let Token::Identifier(name) = t.value() else {
+                    unreachable!()
+                };
                 params.push(name.to_owned());
                 if self.next_token_if(|t| matches!(t, Token::Comma)).is_none() {
                     break;
@@ -260,16 +262,17 @@ impl<'a> Parser<'a> {
         self.next_token_if_or_err(|t| matches!(t, Token::RightParen))
             .map_err(|e| e.co_locate(SyntaxError::ExpectedControlRightParen))?;
 
-
         self.next_token_if_or_err(|t| matches!(t, Token::LeftBrace))
             .map_err(|e| e.co_locate(SyntaxError::UnopenedBlock))?;
 
         let body = self.block()?;
-        Ok(Stmt::Function(Function {
+        Ok(Stmt::Function(
+            Function {
                 name: name.to_owned(),
                 body,
                 params,
             }
+            .into(),
         ))
     }
 
