@@ -90,7 +90,7 @@ impl<'a> Parser<'a> {
         };
 
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
-            .map_err(|e| e.co_locate(SyntaxError::UnClosedExprStatement))?;
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))?;
 
         Ok(Stmt::Var(t.co_locate(identifier.to_owned()), initializer))
     }
@@ -104,6 +104,8 @@ impl<'a> Parser<'a> {
             self.if_statement()
         } else if self.next_token_if(|t| matches!(t, Token::Print)).is_some() {
             self.print_statement()
+        } else if self.next_token_if(|t| matches!(t, Token::Return)).is_some() {
+            self.return_statement()
         } else if self
             .next_token_if(|t| matches!(t, Token::LeftBrace))
             .is_some()
@@ -216,7 +218,23 @@ impl<'a> Parser<'a> {
 
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
             .and(Ok(Stmt::Print(value)))
-            .map_err(|e| e.co_locate(SyntaxError::UnClosedExprStatement))
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))
+    }
+
+    fn return_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
+        let value = if !self
+            .peek_token()
+            .is_some_and(|t| matches!(t.value(), Token::Semicolon))
+        {
+            self.expression()?
+        } else {
+            Expr::Literal(Literal::Nil)
+        };
+
+        self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement));
+
+        Ok(Stmt::Return(value))
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -224,11 +242,10 @@ impl<'a> Parser<'a> {
 
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
             .and(Ok(Stmt::Expression(expr)))
-            .map_err(|e| e.co_locate(SyntaxError::UnClosedExprStatement))
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))
     }
 
     fn function(&mut self, kind: &str) -> Result<Stmt, Located<SyntaxError>> {
-        println!("YOO");
         let t = self
             .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
             .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionName))?;

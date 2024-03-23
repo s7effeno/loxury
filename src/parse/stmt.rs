@@ -8,6 +8,7 @@ pub enum Stmt {
     Expression(Expr),
     Function(Function),
     Print(Expr),
+    Return(Expr),
     Var(Located<String>, Option<Expr>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),

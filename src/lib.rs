@@ -5,6 +5,11 @@ mod parse;
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 
+enum Either<A, B> {
+    A(A),
+    B(B),
+}
+
 #[derive(Clone)]
 enum Position {
     Coords(usize, usize),
@@ -71,13 +76,15 @@ mod error {
     use std::error::Error;
     use std::fmt::{Display, Formatter, Result};
 
+    use crate::Object;
+
     #[derive(Debug, Clone)]
     pub enum Syntax {
         Unclosed,
         StrayCharacter(char),
         ExpectedExpression,
         UnclosedGrouping,
-        UnClosedExprStatement,
+        UnclosedStatement,
         ExpectedVariableName,
         ExpectedFunctionName,
         InvalidAssignmentTarget,
@@ -101,7 +108,7 @@ mod error {
                 Self::UnclosedGrouping => {
                     write!(f, "expected ')' at the end of grouping expression")
                 }
-                Self::UnClosedExprStatement => {
+                Self::UnclosedStatement => {
                     write!(f, "expected ';' at the end of statement")
                 }
                 Self::ExpectedVariableName => write!(f, "expected variable name"),
@@ -208,7 +215,7 @@ impl LoxFunction {
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
                     environment.define(name, value);
                 }
-                Interpreter::execute_block(&declaration.body, environment)?;
+                let ret = Interpreter::execute_block(&declaration.body, environment)?;
                 environment.unnest().unwrap();
                 // ?
                 Ok(Object::Nil)

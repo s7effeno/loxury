@@ -7,9 +7,24 @@ use crate::Object;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::UNIX_EPOCH;
+use crate::Either;
 
 mod environment;
 pub use environment::Environment;
+
+pub type Unwinder = Either<Located<RuntimeError>, Object>;
+
+impl From<Located<RuntimeError>> for Unwinder {
+    fn from(value: Located<RuntimeError>) -> Self {
+        Either::A(value)
+    }
+}
+
+impl From<Object> for Unwinder {
+    fn from(value: Object) -> Self {
+        Either::B(value)
+    }
+}
 
 pub struct Interpreter {
     globals: Rc<RefCell<Environment>>,
@@ -200,11 +215,11 @@ impl Interpreter {
         }
     }
 
-    fn execute(&mut self, stmt: &Stmt) -> Result<(), Located<RuntimeError>> {
+    fn execute(&mut self, stmt: &Stmt) -> Result<(), Unwinder> {
         Self::_execute(stmt, &mut self.environment.borrow_mut())
     }
 
-    fn _execute(stmt: &Stmt, environment: &mut Environment) -> Result<(), Located<RuntimeError>> {
+    fn _execute(stmt: &Stmt, environment: &mut Environment) -> Result<(), Unwinder> {
         match stmt {
             Stmt::Print(e) => {
                 println!("{}", Self::_evaluate(&e, environment)?);
@@ -256,22 +271,30 @@ impl Interpreter {
                 );
                 Ok(())
             }
+            Stmt::Return(v) => {
+                let v = Self::_evaluate(&v, environment)?;
+                Err(v.into())
+            }
         }
     }
 
     pub fn execute_block(
         statements: &Vec<Stmt>,
         environment: &mut Environment,
-    ) -> Result<(), Located<RuntimeError>> {
+    ) -> Result<Option<Object>, Located<RuntimeError>> {
         environment.nest();
         for statement in statements {
-            if let Err(e) = Self::_execute(statement, environment) {
+            let res = Self::_execute(statement, environment);
+            if let Err(e) = res {
                 environment.unnest().unwrap();
                 return Err(e);
+            } else if let Ok(Some(_)) = res {
+                environment.unnest().unwrap();
+                return res;
             }
         }
         environment.unnest().unwrap();
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -306,9 +329,16 @@ mod tests {
     #[test]
     fn functions() {
         let mut p = Parser::new(Lexer::new(
-            "print clock();"
+            "
+            fun sayHi(first, last) {
+              print \"Hi, \" + first + \" \" + last + \"!\";
+            }
+
+            sayHi(\"Dear\", \"Reader\");
+            ",
         ));
         let mut i = Interpreter::new();
+        println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));
     }
 }
