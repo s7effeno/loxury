@@ -27,8 +27,8 @@ impl From<Object> for Unwinder {
 }
 
 pub struct Interpreter {
-    globals: Rc<RefCell<Environment>>,
-    environment: Rc<RefCell<Environment>>,
+    globals: Environment,
+    environment: Environment,
 }
 
 impl Interpreter {
@@ -45,7 +45,6 @@ impl Interpreter {
             ),
         );
 
-        let globals = Rc::new(RefCell::new(globals.into()));
         let environment = globals.clone();
         Self {
             globals,
@@ -62,13 +61,10 @@ impl Interpreter {
     }
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Object, Located<RuntimeError>> {
-        Self::_evaluate(expr, &mut self.environment.borrow_mut())
+        Self::_evaluate(expr, &self.environment)
     }
 
-    fn _evaluate(
-        expr: &Expr,
-        environment: &mut Environment,
-    ) -> Result<Object, Located<RuntimeError>> {
+    fn _evaluate(expr: &Expr, environment: &Environment) -> Result<Object, Located<RuntimeError>> {
         // maybe implement directly in object?
         fn is_equal(left: Object, right: Object) -> bool {
             match (left, right) {
@@ -216,10 +212,10 @@ impl Interpreter {
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<(), Unwinder> {
-        Self::_execute(stmt, &mut self.environment.borrow_mut())
+        Self::_execute(stmt, &self.environment)
     }
 
-    fn _execute(stmt: &Stmt, environment: &mut Environment) -> Result<(), Unwinder> {
+    fn _execute(stmt: &Stmt, environment: &Environment) -> Result<(), Unwinder> {
         match stmt {
             Stmt::Print(e) => {
                 println!("{}", Self::_evaluate(&e, environment)?);
@@ -280,17 +276,12 @@ impl Interpreter {
 
     pub fn execute_block(
         statements: &Vec<Stmt>,
-        environment: &mut Environment,
+        environment: &Environment,
     ) -> Result<(), Unwinder> {
-        environment.nest();
+        let environment = environment.nest();
         for statement in statements {
-            let res = Self::_execute(statement, environment);
-            if let Err(e) = res {
-                environment.unnest().unwrap();
-                return Err(e);
-            }
+            Self::_execute(statement, &environment)?;
         }
-        environment.unnest().unwrap();
         Ok(())
     }
 }
@@ -362,6 +353,43 @@ mod tests {
             ",
         ));
         let mut i = Interpreter::new();
+        i.execute(&p.next().unwrap());
+        i.execute(&p.next().unwrap());
+    }
+
+    #[test]
+    fn fib() {
+        let mut p = Parser::new(Lexer::new(
+            "
+            fun fib(n) {
+              if (n <= 1) return n;
+              return fib(n - 2) + fib(n - 1);
+            }
+
+            for (var i = 0; i < 30; i = i + 1) {
+              print fib(i);
+            }
+            ",
+        ));
+        let mut i = Interpreter::new();
+        i.execute(&p.next().unwrap());
+        i.execute(&p.next().unwrap());
+    }
+
+    #[test]
+    fn block() {
+        let mut p = Parser::new(Lexer::new(
+            "
+            var a = 5;
+            {
+            var a = a + 1;
+            print a;
+            }
+            print a;
+            "
+        ));
+        let mut i = Interpreter::new();
+        i.execute(&p.next().unwrap());
         i.execute(&p.next().unwrap());
         i.execute(&p.next().unwrap());
     }

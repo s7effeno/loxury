@@ -205,25 +205,23 @@ impl LoxFunction {
 
     fn call(
         &self,
-        environment: &mut Environment,
+        environment: &Environment,
         arguments: Vec<Object>,
     ) -> Result<Object, Located<error::Runtime>> {
-        environment.nest();
         match self {
             Self::User { declaration } => {
-                environment.nest();
+                let environment = environment.nest();
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
                     environment.define(name, value);
                 }
-                let ret = match Interpreter::execute_block(&declaration.body, environment) {
+                let ret = match Interpreter::execute_block(&declaration.body, &environment) {
                     Ok(()) => Ok(Object::Nil),
                     Err(Unwinder::B(ret)) => Ok(ret),
                     Err(Unwinder::A(err)) => Err(err),
                 };
-                environment.unnest().unwrap();
                 ret
             }
-            Self::Foreign { arity, f } => Ok(f(arguments)),
+            Self::Foreign { f, .. } => Ok(f(arguments)),
         }
     }
 }
