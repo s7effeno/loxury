@@ -1,13 +1,13 @@
 use crate::error::Runtime as RuntimeError;
 use crate::lex::Token;
 use crate::parse::{Expr, Literal, Stmt};
+use crate::Either;
 use crate::Located;
 use crate::LoxFunction;
 use crate::Object;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::UNIX_EPOCH;
-use crate::Either;
 
 mod environment;
 pub use environment::Environment;
@@ -281,20 +281,17 @@ impl Interpreter {
     pub fn execute_block(
         statements: &Vec<Stmt>,
         environment: &mut Environment,
-    ) -> Result<Option<Object>, Located<RuntimeError>> {
+    ) -> Result<(), Unwinder> {
         environment.nest();
         for statement in statements {
             let res = Self::_execute(statement, environment);
             if let Err(e) = res {
                 environment.unnest().unwrap();
                 return Err(e);
-            } else if let Ok(Some(_)) = res {
-                environment.unnest().unwrap();
-                return res;
             }
         }
         environment.unnest().unwrap();
-        Ok(None)
+        Ok(())
     }
 }
 
@@ -320,10 +317,14 @@ mod tests {
         ));
         let mut i = Interpreter::new();
         // println!("{}", Interpreter::evaluate(p.next)
+        /*println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));
         println!("{:?}", i.execute(&p.next().unwrap()));
-        println!("{:?}", i.execute(&p.next().unwrap()));
-        println!("{:?}", i.execute(&p.next().unwrap()));
+        println!("{:?}", i.execute(&p.next().unwrap()));*/
+        i.execute(&p.next().unwrap());
+        i.execute(&p.next().unwrap());
+        i.execute(&p.next().unwrap());
+        i.execute(&p.next().unwrap());
     }
 
     #[test]
@@ -338,7 +339,30 @@ mod tests {
             ",
         ));
         let mut i = Interpreter::new();
-        println!("{:?}", i.execute(&p.next().unwrap()));
-        println!("{:?}", i.execute(&p.next().unwrap()));
+        /*println!("{:?}", i.execute(&p.next().unwrap()));
+        println!("{:?}", i.execute(&p.next().unwrap()));*/
+        i.execute(&p.next().unwrap());
+        i.execute(&p.next().unwrap());
+    }
+
+    #[test]
+    fn function_ret() {
+        let mut p = Parser::new(Lexer::new(
+            "
+            fun sum(a, b) {
+                while (true) {
+                    while (true) {
+                        if (true) {
+                            return a + b;
+                        }
+                    }
+                }
+            }
+            print sum(5, 6);
+            ",
+        ));
+        let mut i = Interpreter::new();
+        i.execute(&p.next().unwrap());
+        i.execute(&p.next().unwrap());
     }
 }

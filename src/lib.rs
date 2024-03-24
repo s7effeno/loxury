@@ -179,7 +179,7 @@ mod error {
     impl Error for Runtime {}
 }
 
-use interpret::{Environment, Interpreter};
+use interpret::{Environment, Interpreter, Unwinder};
 
 use crate::parse::Function;
 use std::rc::Rc;
@@ -215,10 +215,13 @@ impl LoxFunction {
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
                     environment.define(name, value);
                 }
-                let ret = Interpreter::execute_block(&declaration.body, environment)?;
+                let ret = match Interpreter::execute_block(&declaration.body, environment) {
+                    Ok(()) => Ok(Object::Nil),
+                    Err(Unwinder::B(ret)) => Ok(ret),
+                    Err(Unwinder::A(err)) => Err(err),
+                };
                 environment.unnest().unwrap();
-                // ?
-                Ok(Object::Nil)
+                ret
             }
             Self::Foreign { arity, f } => Ok(f(arguments)),
         }
