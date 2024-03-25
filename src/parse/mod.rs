@@ -5,7 +5,6 @@ use std::iter::Peekable;
 use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
 use crate::Located;
-use crate::LoxFunction;
 pub use expr::{Expr, Literal};
 pub use stmt::Function;
 pub use stmt::Stmt;
@@ -15,8 +14,6 @@ pub struct Parser<'a> {
     errors: Vec<Located<SyntaxError>>,
 }
 
-// TODO: write this shit better and less boilerplated
-// a method to access the token itself for self.peek would be useful
 impl<'a> Parser<'a> {
     pub fn new(tokens: Lexer<'a>) -> Self {
         Self {
@@ -232,7 +229,7 @@ impl<'a> Parser<'a> {
         };
 
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
-            .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement));
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))?;
 
         Ok(Stmt::Return(value))
     }

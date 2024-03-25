@@ -5,8 +5,6 @@ use crate::Either;
 use crate::Located;
 use crate::LoxFunction;
 use crate::Object;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::UNIX_EPOCH;
 
 mod environment;
@@ -33,7 +31,7 @@ pub struct Interpreter {
 
 impl Interpreter {
     fn new() -> Self {
-        let mut globals = Environment::new();
+        let globals = Environment::new();
         globals.define(
             "clock",
             Object::Function(
@@ -234,7 +232,7 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Block(b) => {
-                Self::execute_block(b, environment)?;
+                Self::execute_block(b, &environment.nest())?;
                 Ok(())
             }
             Stmt::If(cond, branch_then, branch_else) => {
@@ -278,7 +276,6 @@ impl Interpreter {
         statements: &Vec<Stmt>,
         environment: &Environment,
     ) -> Result<(), Unwinder> {
-        let environment = environment.nest();
         for statement in statements {
             Self::_execute(statement, &environment)?;
         }

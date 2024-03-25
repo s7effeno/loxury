@@ -4,7 +4,6 @@ use std::{iter::Peekable, str::Chars};
 mod token;
 use crate::error::Syntax as SyntaxError;
 pub use token::Token;
-use token::KEYWORDS;
 
 #[derive(Clone)]
 struct Text<'a> {
@@ -237,11 +236,7 @@ impl Iterator for Lexer<'_> {
                     let identifier: String = self
                         .source
                         .peeking_take_string_while(|c| c.is_alphanumeric() || *c == '_');
-                    self.local_token(
-                        KEYWORDS
-                            .get(&*identifier)
-                            .map_or(Token::Identifier(identifier), |t| t.clone()),
-                    )
+                    self.local_token(Token::identifier(&identifier))
                 }
                 c if c.is_whitespace() => {
                     self.source.next();

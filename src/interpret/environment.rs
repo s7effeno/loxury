@@ -1,10 +1,6 @@
-use crate::error::Runtime as RuntimeError;
-use crate::parse::Literal;
-use crate::Located;
 use crate::Object;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::mem;
 use std::rc::Rc;
 
 struct _Environment {

@@ -1,10 +1,8 @@
-use super::Stmt;
 use crate::lex::Token;
 use crate::Located;
 use crate::Object;
 use std::convert::Into;
 use std::fmt::{Debug, Display, Formatter, Result};
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum Literal {

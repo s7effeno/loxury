@@ -1,5 +1,3 @@
-use phf::phf_map;
-
 #[derive(Clone, Debug)]
 pub enum Token {
     LeftParen,
@@ -42,21 +40,26 @@ pub enum Token {
     Identifier(String),
 }
 
-pub static KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
-    "and" => Token::And,
-    "class" => Token::Class,
-    "else" => Token::Else,
-    "false" => Token::False,
-    "for" => Token::For,
-    "fun" => Token::Fun,
-    "if" => Token::If,
-    "nil" => Token::Nil,
-    "or" => Token::Or,
-    "print" => Token::Print,
-    "return" => Token::Return,
-    "super" => Token::Super,
-    "this" => Token::This,
-    "true" => Token::True,
-    "var" => Token::Var,
-    "while" =>  Token::While,
-};
+impl Token {
+    pub fn identifier(s: &str) -> Self {
+        match s {
+            "and" => Self::And,
+            "class" => Self::Class,
+            "else" => Self::Else,
+            "false" => Self::False,
+            "for" => Self::For,
+            "fun" => Self::Fun,
+            "if" => Self::If,
+            "nil" => Self::Nil,
+            "or" => Self::Or,
+            "print" => Self::Print,
+            "return" => Self::Return,
+            "super" => Self::Super,
+            "this" => Self::This,
+            "true" => Self::True,
+            "var" => Self::Var,
+            "while" =>  Self::While,
+            _ => Self::Identifier(s.into()),
+        }
+    }
+}

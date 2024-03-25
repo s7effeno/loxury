@@ -76,8 +76,6 @@ mod error {
     use std::error::Error;
     use std::fmt::{Display, Formatter, Result};
 
-    use crate::Object;
-
     #[derive(Debug, Clone)]
     pub enum Syntax {
         Unclosed,

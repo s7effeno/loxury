@@ -1,6 +1,5 @@
 use super::expr::Expr;
 use crate::Located;
-use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
