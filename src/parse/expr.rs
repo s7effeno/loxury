@@ -1,7 +1,5 @@
 use crate::lex::Token;
 use crate::Located;
-use crate::Object;
-use std::convert::Into;
 use std::fmt::{Debug, Display, Formatter, Result};
 
 #[derive(Debug, Clone)]
@@ -10,17 +8,6 @@ pub enum Literal {
     Number(f64),
     String(String),
     Nil,
-}
-
-impl Into<Object> for Literal {
-    fn into(self) -> Object {
-        match self {
-            Self::Boolean(v) => Object::Boolean(v),
-            Self::Number(v) => Object::Number(v),
-            Self::String(v) => Object::String(v),
-            Self::Nil => Object::Nil,
-        }
-    }
 }
 
 impl Display for Literal {

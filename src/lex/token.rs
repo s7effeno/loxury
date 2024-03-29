@@ -58,7 +58,7 @@ impl Token {
             "this" => Self::This,
             "true" => Self::True,
             "var" => Self::Var,
-            "while" =>  Self::While,
+            "while" => Self::While,
             _ => Self::Identifier(s.into()),
         }
     }

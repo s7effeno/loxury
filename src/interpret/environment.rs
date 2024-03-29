@@ -1,4 +1,4 @@
-use crate::Object;
+use super::Object;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -56,9 +56,12 @@ impl Environment {
 
     pub fn nest(&self) -> Self {
         let enclosing = Some(Self(self.0.clone()));
-        Self(RefCell::new(_Environment {
-            values: HashMap::new(),
-            enclosing,
-        }).into())
+        Self(
+            RefCell::new(_Environment {
+                values: HashMap::new(),
+                enclosing,
+            })
+            .into(),
+        )
     }
 }

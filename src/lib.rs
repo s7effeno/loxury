@@ -95,6 +95,7 @@ mod error {
         TooManyArguments,
         ExpectedFunctionLeftParen,
         ExpectedParameterName,
+        SelfReferencialVariableInitializer,
     }
 
     impl Display for Syntax {
@@ -139,6 +140,9 @@ mod error {
                 Self::UnopenedBlock => {
                     write!(f, "expected '{{' before block")
                 }
+                Self::SelfReferencialVariableInitializer => {
+                    write!(f, "can't read local variable in its own initalizer")
+                }
             }
         }
     }
@@ -175,81 +179,4 @@ mod error {
     }
 
     impl Error for Runtime {}
-}
-
-use interpret::{Environment, Interpreter, Unwinder};
-
-use crate::parse::Function;
-use std::rc::Rc;
-
-#[derive(Clone)]
-enum LoxFunction {
-    User {
-        declaration: Function,
-    },
-    Foreign {
-        arity: u8,
-        f: fn(Vec<Object>) -> Object,
-    },
-}
-
-impl LoxFunction {
-    fn arity(&self) -> u8 {
-        match self {
-            Self::User { declaration } => declaration.params.len() as u8,
-            Self::Foreign { arity, .. } => *arity,
-        }
-    }
-
-    fn call(
-        &self,
-        environment: &Environment,
-        arguments: Vec<Object>,
-    ) -> Result<Object, Located<error::Runtime>> {
-        match self {
-            Self::User { declaration } => {
-                let environment = environment.nest();
-                for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
-                    environment.define(name, value);
-                }
-                let ret = match Interpreter::execute_block(&declaration.body, &environment) {
-                    Ok(()) => Ok(Object::Nil),
-                    Err(Unwinder::B(ret)) => Ok(ret),
-                    Err(Unwinder::A(err)) => Err(err),
-                };
-                ret
-            }
-            Self::Foreign { f, .. } => Ok(f(arguments)),
-        }
-    }
-}
-
-impl Display for LoxFunction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::User { declaration } => write!(f, "<fn {}>", declaration.name),
-            Self::Foreign { .. } => write!(f, "<foreign fn>"),
-        }
-    }
-}
-
-#[derive(Clone)]
-enum Object {
-    Boolean(bool),
-    Number(f64),
-    String(String),
-    Nil,
-    Function(Rc<LoxFunction>),
-}
-
-impl Display for Object {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Boolean(v) => write!(f, "{}", v),
-            Self::Number(v) => write!(f, "{}", v),
-            Self::String(v) => write!(f, "{}", v),
-            Self::Nil => write!(f, "nil"),
-            Self::Function(v) => write!(f, "{}", v),
-        }
-    }
 }
