@@ -1,12 +1,13 @@
 use super::Interpreter;
 use crate::Located;
 use crate::error::Syntax as SyntaxError;
-use crate::parse::{Expr, Stmt};
+use crate::parse::{Expr, Stmt, Function};
 use std::collections::HashMap;
 
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<&'a str, bool>>,
     interpreter: &'a mut Interpreter,
+    errors: Vec<Located<SyntaxError>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -14,6 +15,7 @@ impl<'a> Resolver<'a> {
         Self {
             scopes: Vec::new(),
             interpreter,
+            errors: Vec::new(),
         }
     }
 
@@ -25,11 +27,25 @@ impl<'a> Resolver<'a> {
 
     fn resolve_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
-            Stmt::Block(_) => todo!(),
-            Stmt::Expression(_) => todo!(),
-            Stmt::Function(_) => todo!(),
-            Stmt::Print(_) => todo!(),
-            Stmt::Return(_) => todo!(),
+            Stmt::Block(b) => {
+                self.begin_scope();
+                self.resolve(b);
+                self.end_scope();
+            }
+            Stmt::Expression(e) => {
+                self.resolve_expr(e)
+            }
+            Stmt::Function(f) => {
+                self.declare(&f.name);
+                self.define(&f.name);
+                self.resolve_function(f);
+            }
+            Stmt::Print(e) => {
+                self.resolve_expr(e)
+            }
+            Stmt::Return(e) => {
+                self.resolve_expr(e)
+            }
             Stmt::Var(name, init) => {
                 self.declare(name.value());
                 if let Some(init) = init {
@@ -37,20 +53,48 @@ impl<'a> Resolver<'a> {
                 }
                 self.define(name.value());
             }
-            Stmt::If(_, _, _) => todo!(),
-            Stmt::While(_, _) => todo!(),
+            Stmt::If(cond, branch_then, branch_else) => {
+                self.resolve_expr(cond);
+                self.resolve_stmt(branch_then);
+                if let Some(branch_else) = branch_else {
+                    self.resolve_stmt(branch_else);
+                }
+            }
+            Stmt::While(cond, body) => {
+                self.resolve_expr(cond);
+                self.resolve_stmt(body);
+            }
         }
     }
 
-    fn resolve_expr(&mut self, expr: &Expr) -> Result<(), Located<SyntaxError>> {
+    fn resolve_expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::Assign(_, _) => todo!(),
-            Expr::Binary(_, _, _) => todo!(),
-            Expr::Call(_, _, _) => todo!(),
-            Expr::Grouping(_) => todo!(),
-            Expr::Literal(_) => todo!(),
-            Expr::Logical(_, _, _) => todo!(),
-            Expr::Unary(_, _) => todo!(),
+            Expr::Assign(name, value) => {
+                self.resolve_expr(value);
+                self.resolve_local(expr, name.value());
+            }
+            Expr::Binary(l, _, r) => {
+                self.resolve_expr(l);
+                self.resolve_expr(r)
+            }
+            Expr::Call(callee, _, args) => {
+                self.resolve_expr(callee);
+                for arg in args {
+                    self.resolve_expr(arg);
+                }
+            }
+            Expr::Grouping(e) => {
+                self.resolve_expr(e)
+            }
+            Expr::Literal(_) => {
+            }
+            Expr::Logical(l, _, r) => {
+                self.resolve_expr(l);
+                self.resolve_expr(r);
+            }
+            Expr::Unary(_, e) => {
+                self.resolve_expr(e)
+            }
             Expr::Variable(name) => {
                 if self
                     .scopes
@@ -58,10 +102,9 @@ impl<'a> Resolver<'a> {
                     .filter(|s| s.get(name.value() as &str).is_some_and(|b| !b))
                     .is_some()
                 {
-                    Err(name.co_locate(SyntaxError::SelfReferencialVariableInitializer))
+                    self.error(name.co_locate(SyntaxError::SelfReferencialVariableInitializer));
                 } else {
                     self.resolve_local(expr, name.value());
-                    Ok(())
                 }
             }
         }
@@ -75,6 +118,16 @@ impl<'a> Resolver<'a> {
                 self.interpreter.resolve(expr, depth);
             }
         }
+    }
+
+    fn resolve_function(&mut self, function: &'a Function) {
+        self.begin_scope();
+        for param in function.params.iter() {
+            self.declare(param);
+            self.define(param);
+        }
+        self.resolve(&function.body);
+        self.end_scope();
     }
 
     fn begin_scope(&mut self) {
@@ -91,5 +144,9 @@ impl<'a> Resolver<'a> {
 
     fn define(&mut self, name: &'a str) {
         self.scopes.last_mut().map(|s| s.insert(name, true));
+    }
+
+    fn error(&mut self, error: Located<SyntaxError>) {
+        self.errors.push(error);
     }
 }

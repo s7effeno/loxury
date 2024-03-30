@@ -8,7 +8,7 @@ use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 use std::time::UNIX_EPOCH;
 use std::collections::HashMap;
-use std::ptr;
+use std::mem;
 
 mod environment;
 mod resolver;
@@ -22,7 +22,7 @@ impl From<Located<RuntimeError>> for Unwinder {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Object {
     Boolean(bool),
     Number(f64),
@@ -54,7 +54,7 @@ impl Display for Object {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum LoxFunction {
     User {
         declaration: Function,
@@ -75,16 +75,16 @@ impl LoxFunction {
 
     fn call(
         &self,
-        environment: &Environment,
+        interpreter: &mut Interpreter,
         arguments: Vec<Object>,
     ) -> Result<Object, Located<RuntimeError>> {
         match self {
             Self::User { declaration } => {
-                let environment = environment.nest();
+                let environment = interpreter.environment.nest();
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
                     environment.define(name, value);
                 }
-                let ret = match Interpreter::execute_block(&declaration.body, &environment) {
+                let ret = match interpreter.execute_block(&declaration.body, environment) {
                     Ok(()) => Ok(Object::Nil),
                     Err(Unwinder::B(ret)) => Ok(ret),
                     Err(Unwinder::A(err)) => Err(err),
@@ -148,10 +148,6 @@ impl Interpreter {
     }
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Object, Located<RuntimeError>> {
-        Self::_evaluate(expr, &self.environment)
-    }
-
-    fn _evaluate(expr: &Expr, environment: &Environment) -> Result<Object, Located<RuntimeError>> {
         // maybe implement directly in object?
         fn is_equal(left: Object, right: Object) -> bool {
             match (left, right) {
@@ -166,9 +162,9 @@ impl Interpreter {
 
         match expr {
             Expr::Literal(e) => Ok(e.clone().into()),
-            Expr::Grouping(e) => Self::_evaluate(e, environment),
+            Expr::Grouping(e) => self.evaluate(e),
             Expr::Unary(op, e) => {
-                let right = Self::_evaluate(e, environment)?;
+                let right = self.evaluate(e)?;
                 match op.value() {
                     Token::Minus => {
                         if let Object::Number(n) = right {
@@ -182,8 +178,8 @@ impl Interpreter {
                 }
             }
             Expr::Binary(l, op, r) => {
-                let left = Self::_evaluate(l, environment)?;
-                let right = Self::_evaluate(r, environment)?;
+                let left = self.evaluate(l)?;
+                let right = self.evaluate(r)?;
                 match op.value() {
                     Token::Greater => {
                         if let (Object::Number(left), Object::Number(right)) = (left, right) {
@@ -249,7 +245,7 @@ impl Interpreter {
                 }
             }
             Expr::Variable(name) => {
-                environment
+                self.environment
                     .get(name.value())
                     .map(|l| l.clone())
                     .map_err(|_| {
@@ -257,8 +253,8 @@ impl Interpreter {
                     })
             }
             Expr::Assign(name, value) => {
-                let value = Self::_evaluate(value, environment)?;
-                environment
+                let value = self.evaluate(value)?;
+                self.environment
                     .assign(name.value(), value.clone())
                     .map(|_| value)
                     .map_err(|_| {
@@ -266,7 +262,7 @@ impl Interpreter {
                     })
             }
             Expr::Logical(l, op, r) => {
-                let left = Self::_evaluate(l, environment)?;
+                let left = self.evaluate(l)?;
                 if let Token::Or = op.value() {
                     if Self::is_truthy(&left) {
                         return Ok(left);
@@ -277,13 +273,13 @@ impl Interpreter {
                     }
                 }
 
-                Self::_evaluate(r, environment)
+                self.evaluate(r)
             }
             Expr::Call(callee, paren, args) => {
-                let callee = Self::_evaluate(callee, environment)?;
+                let callee = self.evaluate(callee)?;
                 let mut expanded_args = Vec::with_capacity(args.len());
                 for arg in args {
-                    expanded_args.push(Self::_evaluate(arg, environment)?);
+                    expanded_args.push(self.evaluate(arg)?);
                 }
                 let Object::Function(f) = callee else {
                     return Err(paren.co_locate(RuntimeError::NotCallable));
@@ -293,43 +289,38 @@ impl Interpreter {
                 if expected != actual {
                     return Err(paren.co_locate(RuntimeError::WrongArity(expected, actual)));
                 }
-                f.call(environment, expanded_args)
+                f.call(self, expanded_args)
             }
         }
     }
 
     fn execute(&mut self, stmt: &Stmt) -> Result<(), Unwinder> {
-        Self::_execute(stmt, &self.environment)
-    }
-
-    fn _execute(stmt: &Stmt, environment: &Environment) -> Result<(), Unwinder> {
         match stmt {
             Stmt::Print(e) => {
-                println!("{}", Self::_evaluate(&e, environment)?);
+                println!("{}", self.evaluate(&e)?);
                 Ok(())
             }
             Stmt::Expression(e) => {
-                Self::_evaluate(&e, environment)?;
+                self.evaluate(&e)?;
                 Ok(())
             }
             Stmt::Var(name, init) => {
-                let init = Self::_evaluate(
+                let init = self.evaluate(
                     init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)),
-                    environment,
                 )?;
-                environment.define(name.value(), init);
+                self.environment.define(name.value(), init);
                 Ok(())
             }
             Stmt::Block(b) => {
-                Self::execute_block(b, &environment.nest())?;
+                self.execute_block(b, self.environment.nest())?;
                 Ok(())
             }
             Stmt::If(cond, branch_then, branch_else) => {
-                if Self::is_truthy(&Self::_evaluate(&cond, environment)?) {
-                    Self::_execute(branch_then, environment)
+                if Self::is_truthy(&self.evaluate(&cond)?) {
+                    self.execute(branch_then)
                 } else {
                     if let Some(branch_else) = branch_else {
-                        Self::_execute(branch_else, environment)?;
+                        self.execute(branch_else)?;
                         Ok(())
                     } else {
                         Ok(())
@@ -337,13 +328,13 @@ impl Interpreter {
                 }
             }
             Stmt::While(cond, body) => {
-                while Self::is_truthy(&Self::_evaluate(&cond, environment)?) {
-                    Self::_execute(body, environment)?;
+                while Self::is_truthy(&self.evaluate(&cond)?) {
+                    self.execute(body)?;
                 }
                 Ok(())
             }
             Stmt::Function(f) => {
-                environment.define(
+                self.environment.define(
                     &f.name,
                     Object::Function(
                         LoxFunction::User {
@@ -355,7 +346,7 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Return(v) => {
-                let v = Self::_evaluate(&v, environment)?;
+                let v = self.evaluate(&v)?;
                 Err(v.into())
             }
         }
@@ -365,10 +356,15 @@ impl Interpreter {
         self.locals.insert(expr as *const Expr, depth);
     }
 
-    fn execute_block(statements: &Vec<Stmt>, environment: &Environment) -> Result<(), Unwinder> {
+    fn execute_block(&mut self, statements: &Vec<Stmt>, environment: Environment) -> Result<(), Unwinder> {
+        let previous = mem::replace(&mut self.environment, environment);
         for statement in statements {
-            Self::_execute(statement, &environment)?;
+            if let Err(e) = self.execute(statement) {
+                self.environment = previous;
+                return Err(e);
+            }
         }
+        self.environment = previous;
         Ok(())
     }
 }
@@ -387,8 +383,8 @@ mod tests {
             var x;
             print x;
             for (var i = 0; i < 10; i = i + 1) {
-                print i;
                 for (var j = 0; j < 10; j = j + 1) {
+                    print i;
                     print j;
                 }
             }",
