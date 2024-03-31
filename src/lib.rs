@@ -1,7 +1,12 @@
 #![feature(test)]
-mod interpret;
 mod lex;
+pub use lex::Lexer;
 mod parse;
+pub use parse::Parser;
+mod resolver;
+pub use resolver::Resolver;
+mod interpret;
+pub use interpret::Interpreter;
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 
@@ -146,6 +151,8 @@ mod error {
             }
         }
     }
+
+    impl Error for Syntax {}
 
     #[derive(Debug, Clone)]
     pub enum Runtime {

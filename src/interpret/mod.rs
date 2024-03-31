@@ -4,14 +4,13 @@ use crate::parse::Function;
 use crate::parse::{Expr, Literal, Stmt};
 use crate::Either;
 use crate::Located;
+use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
+use std::mem;
 use std::rc::Rc;
 use std::time::UNIX_EPOCH;
-use std::collections::HashMap;
-use std::mem;
 
 mod environment;
-mod resolver;
 pub use environment::Environment;
 
 type Unwinder = Either<Located<RuntimeError>, Object>;
@@ -118,7 +117,7 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let globals = Environment::new();
         globals.define(
             "clock",
@@ -137,6 +136,16 @@ impl Interpreter {
             locals: HashMap::new(),
             environment,
         }
+    }
+
+    pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), Located<RuntimeError>> {
+        for statement in statements {
+            self.execute(&statement).map_err(|e| {
+                let Either::A(e) = e else { panic!() };
+                e
+            })?;
+        }
+        Ok(())
     }
 
     fn is_truthy(val: &Object) -> bool {
@@ -244,22 +253,26 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(name) => {
-                self.environment
-                    .get(name.value())
-                    .map(|l| l.clone())
+            Expr::Variable(name) =>
+            {
+                self.lookup_variable(name.value(), expr as *const Expr)
                     .map_err(|_| {
                         name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
                     })
             }
             Expr::Assign(name, value) => {
                 let value = self.evaluate(value)?;
-                self.environment
-                    .assign(name.value(), value.clone())
-                    .map(|_| value)
-                    .map_err(|_| {
-                        name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
-                    })
+                let distance = self.locals.get(&(expr as *const Expr));
+                match distance {
+                    Some(d) => self.environment.assign_at(*d, name.value(), value.clone()),
+                    None => self
+                        .globals
+                        .assign(name.value(), value.clone())
+                        .map_err(|_| {
+                            name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+                        })?,
+                }
+                Ok(value)
             }
             Expr::Logical(l, op, r) => {
                 let left = self.evaluate(l)?;
@@ -305,9 +318,7 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Var(name, init) => {
-                let init = self.evaluate(
-                    init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)),
-                )?;
+                let init = self.evaluate(init.as_ref().unwrap_or(&Expr::Literal(Literal::Nil)))?;
                 self.environment.define(name.value(), init);
                 Ok(())
             }
@@ -352,11 +363,23 @@ impl Interpreter {
         }
     }
 
-    fn resolve(&mut self, expr: &Expr, depth: usize) {
+    pub fn resolve(&mut self, expr: &Expr, depth: usize) {
         self.locals.insert(expr as *const Expr, depth);
     }
 
-    fn execute_block(&mut self, statements: &Vec<Stmt>, environment: Environment) -> Result<(), Unwinder> {
+    fn lookup_variable(&self, name: &str, id: *const Expr) -> Result<Object, ()> {
+        let distance = self.locals.get(&id);
+        match distance {
+            Some(d) => Ok(self.environment.get_at(*d, &name)),
+            None => self.globals.get(&name),
+        }
+    }
+
+    fn execute_block(
+        &mut self,
+        statements: &Vec<Stmt>,
+        environment: Environment,
+    ) -> Result<(), Unwinder> {
         let previous = mem::replace(&mut self.environment, environment);
         for statement in statements {
             if let Err(e) = self.execute(statement) {

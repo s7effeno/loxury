@@ -1,7 +1,7 @@
-use super::Interpreter;
-use crate::Located;
 use crate::error::Syntax as SyntaxError;
-use crate::parse::{Expr, Stmt, Function};
+use crate::interpret::Interpreter;
+use crate::parse::{Expr, Function, Stmt};
+use crate::Located;
 use std::collections::HashMap;
 
 pub struct Resolver<'a> {
@@ -25,6 +25,10 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    pub fn errors(&'a self) -> &'a [Located<SyntaxError>] {
+        &self.errors
+    }
+
     fn resolve_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::Block(b) => {
@@ -32,20 +36,14 @@ impl<'a> Resolver<'a> {
                 self.resolve(b);
                 self.end_scope();
             }
-            Stmt::Expression(e) => {
-                self.resolve_expr(e)
-            }
+            Stmt::Expression(e) => self.resolve_expr(e),
             Stmt::Function(f) => {
                 self.declare(&f.name);
                 self.define(&f.name);
                 self.resolve_function(f);
             }
-            Stmt::Print(e) => {
-                self.resolve_expr(e)
-            }
-            Stmt::Return(e) => {
-                self.resolve_expr(e)
-            }
+            Stmt::Print(e) => self.resolve_expr(e),
+            Stmt::Return(e) => self.resolve_expr(e),
             Stmt::Var(name, init) => {
                 self.declare(name.value());
                 if let Some(init) = init {
@@ -83,18 +81,13 @@ impl<'a> Resolver<'a> {
                     self.resolve_expr(arg);
                 }
             }
-            Expr::Grouping(e) => {
-                self.resolve_expr(e)
-            }
-            Expr::Literal(_) => {
-            }
+            Expr::Grouping(e) => self.resolve_expr(e),
+            Expr::Literal(_) => {}
             Expr::Logical(l, _, r) => {
                 self.resolve_expr(l);
                 self.resolve_expr(r);
             }
-            Expr::Unary(_, e) => {
-                self.resolve_expr(e)
-            }
+            Expr::Unary(_, e) => self.resolve_expr(e),
             Expr::Variable(name) => {
                 if self
                     .scopes
@@ -116,6 +109,7 @@ impl<'a> Resolver<'a> {
             if scope.contains_key(name) {
                 let depth = scopes_len - i - 1;
                 self.interpreter.resolve(expr, depth);
+                return;
             }
         }
     }
@@ -139,6 +133,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn declare(&mut self, name: &'a str) {
+        let scope = self.scopes.last_mut();
         self.scopes.last_mut().map(|s| s.insert(name, false));
     }
 

@@ -22,6 +22,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, ()> {
+        let statements = self.collect();
+        if self.errors.len() > 0 {
+            Err(())
+        } else {
+            Ok(statements)
+        }
+    }
+
+    pub fn errors(&self) -> &[Located<SyntaxError>] {
+        &self.errors
+    }
+
     fn error(&mut self, error: Located<SyntaxError>) {
         self.errors.push(error);
     }
@@ -367,7 +380,11 @@ impl<'a> Parser<'a> {
         while let Some(t) = self.next_token_if(|t| {
             matches!(
                 t,
-                Token::Greater | Token::GreaterEqual | Token::Less | Token::LessEqual
+                Token::EqualEqual
+                    | Token::Greater
+                    | Token::GreaterEqual
+                    | Token::Less
+                    | Token::LessEqual
             )
         }) {
             let operator = t.clone();

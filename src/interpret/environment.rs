@@ -54,6 +54,37 @@ impl Environment {
         }
     }
 
+    pub fn assign_at(&self, distance: usize, name: &str, value: Object) {
+        self.ancestor(distance)
+            .0
+            .borrow_mut()
+            .values
+            .insert(name.to_string(), value);
+    }
+
+    pub fn get_at(&self, distance: usize, name: &str) -> Object {
+        self.ancestor(distance)
+            .0
+            .borrow()
+            .values
+            .get(name)
+            .unwrap()
+            .clone()
+    }
+
+    pub fn ancestor(&self, distance: usize) -> Environment {
+        if distance == 0 {
+            self.clone()
+        } else {
+            self.0
+                .borrow()
+                .enclosing
+                .as_ref()
+                .unwrap()
+                .ancestor(distance - 1)
+        }
+    }
+
     pub fn nest(&self) -> Self {
         let enclosing = Some(Self(self.0.clone()));
         Self(

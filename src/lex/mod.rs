@@ -244,6 +244,7 @@ impl Iterator for Lexer<'_> {
                 }
                 c => {
                     let c = *c;
+                    self.source.next();
                     self.local_err(SyntaxError::StrayCharacter(c))
                 }
             }
