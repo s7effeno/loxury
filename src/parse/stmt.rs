@@ -1,11 +1,12 @@
 use super::expr::Expr;
 use crate::Located;
+use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
     Block(Vec<Stmt>),
     Expression(Expr),
-    Function(Function),
+    Function(Rc<Function>),
     Print(Expr),
     Return(Expr),
     Var(Located<String>, Option<Expr>),

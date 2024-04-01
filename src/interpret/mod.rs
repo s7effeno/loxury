@@ -56,7 +56,7 @@ impl Display for Object {
 #[derive(Debug, Clone)]
 pub enum LoxFunction {
     User {
-        declaration: Function,
+        declaration: Rc<Function>,
     },
     Foreign {
         arity: u8,
@@ -138,7 +138,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), Located<RuntimeError>> {
+    pub fn interpret(&mut self, statements: &[Stmt]) -> Result<(), Located<RuntimeError>> {
         for statement in statements {
             self.execute(&statement).map_err(|e| {
                 let Either::A(e) = e else { panic!() };
@@ -253,13 +253,9 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(name) =>
-            {
-                self.lookup_variable(name.value(), expr as *const Expr)
-                    .map_err(|_| {
-                        name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
-                    })
-            }
+            Expr::Variable(name) => self.lookup_variable(name.value(), expr).map_err(|_| {
+                name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+            }),
             Expr::Assign(name, value) => {
                 let value = self.evaluate(value)?;
                 let distance = self.locals.get(&(expr as *const Expr));
@@ -367,8 +363,8 @@ impl Interpreter {
         self.locals.insert(expr as *const Expr, depth);
     }
 
-    fn lookup_variable(&self, name: &str, id: *const Expr) -> Result<Object, ()> {
-        let distance = self.locals.get(&id);
+    fn lookup_variable(&self, name: &str, expr: &Expr) -> Result<Object, ()> {
+        let distance = self.locals.get(&(expr as *const Expr));
         match distance {
             Some(d) => Ok(self.environment.get_at(*d, &name)),
             None => self.globals.get(&name),

@@ -83,30 +83,30 @@ mod error {
 
     #[derive(Debug, Clone)]
     pub enum Syntax {
-        Unclosed,
-        StrayCharacter(char),
-        ExpectedExpression,
-        UnclosedGrouping,
-        UnclosedStatement,
-        ExpectedVariableName,
-        ExpectedFunctionName,
-        InvalidAssignmentTarget,
-        UnclosedBlock,
-        UnopenedBlock,
         ExpectedControlLeftParen,
         ExpectedControlRightParen,
-        ExpectedSemicolonAfterForCondition,
-        UnclosedArgumentsList,
-        TooManyArguments,
+        ExpectedExpression,
         ExpectedFunctionLeftParen,
+        ExpectedFunctionName,
         ExpectedParameterName,
+        ExpectedSemicolonAfterForCondition,
+        ExpectedVariableName,
+        InvalidAssignmentTarget,
         SelfReferencialVariableInitializer,
+        StrayCharacter(char),
+        TooManyArguments,
+        UnclosedArgumentsList,
+        UnclosedBlock,
+        UnclosedGrouping,
+        UnclosedStatement,
+        UnclosedString,
+        UnopenedBlock,
     }
 
     impl Display for Syntax {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result {
             match self {
-                Self::Unclosed => write!(f, "expected '\"' at the end of string"),
+                Self::UnclosedString => write!(f, "expected '\"' at the end of string"),
                 Self::StrayCharacter(c) => write!(f, "stray {} in program", c),
                 Self::ExpectedExpression => write!(f, "expected expression"),
                 Self::UnclosedGrouping => {

@@ -19,7 +19,16 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    pub fn resolve(&mut self, statements: &'a [Stmt]) {
+    pub fn resolve(&mut self, statements: &'a [Stmt]) -> Result<(), ()> {
+        self._resolve(statements);
+        if self.errors.len() > 0 {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn _resolve(&mut self, statements: &'a [Stmt]) {
         for stmt in statements {
             self.resolve_stmt(stmt);
         }
@@ -33,7 +42,7 @@ impl<'a> Resolver<'a> {
         match stmt {
             Stmt::Block(b) => {
                 self.begin_scope();
-                self.resolve(b);
+                self._resolve(b);
                 self.end_scope();
             }
             Stmt::Expression(e) => self.resolve_expr(e),
@@ -120,7 +129,7 @@ impl<'a> Resolver<'a> {
             self.declare(param);
             self.define(param);
         }
-        self.resolve(&function.body);
+        self._resolve(&function.body);
         self.end_scope();
     }
 
@@ -132,9 +141,11 @@ impl<'a> Resolver<'a> {
         self.scopes.pop().unwrap();
     }
 
-    fn declare(&mut self, name: &'a str) {
-        let scope = self.scopes.last_mut();
+    fn declare(&mut self, name: &'a str) // -> Result<(), ()>
+    {
+        // self.scopes.last().map(|s| !s.contains_key(name)).ok_or(())?;
         self.scopes.last_mut().map(|s| s.insert(name, false));
+        // Ok(())
     }
 
     fn define(&mut self, name: &'a str) {

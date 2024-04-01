@@ -1,20 +1,22 @@
 use loxury::{Interpreter, Lexer, Parser, Resolver};
-use std::env;
 use std::{
-    fs,
+    env, fs,
     io::{self, Write},
+    process,
 };
 
-fn main() -> Result<(), ()> {
+fn main() {
     let mut args = env::args();
     args.next();
-    match (args.next(), args.next()) {
+    if let Err(()) = match (args.next(), args.next()) {
         (None, None) => run_prompt(),
         (Some(filename), None) => run_file(&filename),
         _ => {
             eprintln!("usage: loxury [script]");
             Err(())
         }
+    } {
+        process::exit(1);
     }
 }
 
@@ -33,7 +35,7 @@ fn run_file(filename: &str) -> Result<(), ()> {
     match fs::read_to_string(filename) {
         Ok(source) => run(&source, &mut Interpreter::new()),
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{}", e.to_string().to_lowercase());
             Err(())
         }
     }
@@ -52,8 +54,13 @@ fn run(source: &str, interpreter: &mut Interpreter) -> Result<(), ()> {
         }
     };
     let mut resolver = Resolver::new(interpreter);
-    resolver.resolve(&statements);
-    if let Err(e) = interpreter.interpret(statements) {
+    if let Err(()) = resolver.resolve(&statements) {
+        for e in resolver.errors() {
+            eprintln!("{e}");
+        }
+        return Err(());
+    }
+    if let Err(e) = interpreter.interpret(&statements) {
         eprintln!("{e}");
         return Err(());
     }
