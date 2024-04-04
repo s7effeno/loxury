@@ -81,7 +81,7 @@ impl LoxFunction {
             Self::User { declaration } => {
                 let environment = interpreter.environment.nest();
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
-                    environment.define(name, value);
+                    environment.define(name.value(), value);
                 }
                 let ret = match interpreter.execute_block(&declaration.body, environment) {
                     Ok(()) => Ok(Object::Nil),
@@ -98,7 +98,7 @@ impl LoxFunction {
 impl Display for LoxFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::User { declaration } => write!(f, "<fn {}>", declaration.name),
+            Self::User { declaration } => write!(f, "<fn {}>", declaration.name.value()),
             Self::Foreign { .. } => write!(f, "<foreign fn>"),
         }
     }
@@ -342,7 +342,7 @@ impl Interpreter {
             }
             Stmt::Function(f) => {
                 self.environment.define(
-                    &f.name,
+                    f.name.value(),
                     Object::Function(
                         LoxFunction::User {
                             declaration: f.clone(),
@@ -352,7 +352,7 @@ impl Interpreter {
                 );
                 Ok(())
             }
-            Stmt::Return(v) => {
+            Stmt::Return(_, v) => {
                 let v = self.evaluate(&v)?;
                 Err(v.into())
             }

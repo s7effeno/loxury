@@ -3,11 +3,18 @@ use crate::interpret::Interpreter;
 use crate::parse::{Expr, Function, Stmt};
 use crate::Located;
 use std::collections::HashMap;
+use std::mem;
+
+enum FunctionKind {
+    None,
+    Function,
+}
 
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<&'a str, bool>>,
     interpreter: &'a mut Interpreter,
     errors: Vec<Located<SyntaxError>>,
+    current_function: FunctionKind,
 }
 
 impl<'a> Resolver<'a> {
@@ -16,6 +23,7 @@ impl<'a> Resolver<'a> {
             scopes: Vec::new(),
             interpreter,
             errors: Vec::new(),
+            current_function: FunctionKind::None,
         }
     }
 
@@ -48,13 +56,18 @@ impl<'a> Resolver<'a> {
             Stmt::Expression(e) => self.resolve_expr(e),
             Stmt::Function(f) => {
                 self.declare(&f.name);
-                self.define(&f.name);
-                self.resolve_function(f);
+                self.define(f.name.value());
+                self.resolve_function(f, FunctionKind::Function);
             }
             Stmt::Print(e) => self.resolve_expr(e),
-            Stmt::Return(e) => self.resolve_expr(e),
+            Stmt::Return(loc, e) => {
+                if let FunctionKind::None = self.current_function {
+                    self.error(loc.co_locate(SyntaxError::TopLevelReturn));
+                }
+                self.resolve_expr(e);
+            }
             Stmt::Var(name, init) => {
-                self.declare(name.value());
+                self.declare(name);
                 if let Some(init) = init {
                     self.resolve_expr(init);
                 }
@@ -104,7 +117,11 @@ impl<'a> Resolver<'a> {
                     .filter(|s| s.get(name.value() as &str).is_some_and(|b| !b))
                     .is_some()
                 {
-                    self.error(name.co_locate(SyntaxError::SelfReferencialVariableInitializer));
+                    self.error(
+                        name.co_locate(SyntaxError::SelfReferencialVariableInitializer(
+                            name.value().into(),
+                        )),
+                    );
                 } else {
                     self.resolve_local(expr, name.value());
                 }
@@ -123,14 +140,16 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_function(&mut self, function: &'a Function) {
+    fn resolve_function(&mut self, function: &'a Function, kind: FunctionKind) {
+        let enclosing_function = mem::replace(&mut self.current_function, kind);
         self.begin_scope();
         for param in function.params.iter() {
             self.declare(param);
-            self.define(param);
+            self.define(param.value());
         }
         self._resolve(&function.body);
         self.end_scope();
+        self.current_function = enclosing_function;
     }
 
     fn begin_scope(&mut self) {
@@ -141,11 +160,19 @@ impl<'a> Resolver<'a> {
         self.scopes.pop().unwrap();
     }
 
-    fn declare(&mut self, name: &'a str) // -> Result<(), ()>
-    {
-        // self.scopes.last().map(|s| !s.contains_key(name)).ok_or(())?;
-        self.scopes.last_mut().map(|s| s.insert(name, false));
-        // Ok(())
+    fn declare(&mut self, name: &'a Located<String>) {
+        if let Err(e) = match self.scopes.last_mut() {
+            Some(s) if s.contains_key(name.value() as &str) => {
+                Err(name.co_locate(SyntaxError::VariableRedeclaration(name.value().to_string())))
+            }
+            Some(s) => {
+                s.insert(name.value(), false);
+                Ok(())
+            }
+            _ => Ok(()),
+        } {
+            self.error(e);
+        }
     }
 
     fn define(&mut self, name: &'a str) {

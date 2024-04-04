@@ -114,8 +114,8 @@ impl<'a> Parser<'a> {
             self.if_statement()
         } else if self.next_token_if(|t| matches!(t, Token::Print)).is_some() {
             self.print_statement()
-        } else if self.next_token_if(|t| matches!(t, Token::Return)).is_some() {
-            self.return_statement()
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Return)) {
+            self.return_statement(t.co_locate(()))
         } else if self
             .next_token_if(|t| matches!(t, Token::LeftBrace))
             .is_some()
@@ -231,7 +231,7 @@ impl<'a> Parser<'a> {
             .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))
     }
 
-    fn return_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
+    fn return_statement(&mut self, location: Located<()>) -> Result<Stmt, Located<SyntaxError>> {
         let value = if !self
             .peek_token()
             .is_some_and(|t| matches!(t.value(), Token::Semicolon))
@@ -244,7 +244,7 @@ impl<'a> Parser<'a> {
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
             .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))?;
 
-        Ok(Stmt::Return(value))
+        Ok(Stmt::Return(location, value))
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -262,6 +262,7 @@ impl<'a> Parser<'a> {
         let Token::Identifier(name) = t.value() else {
             unreachable!()
         };
+        let name = t.co_locate(name.to_owned());
 
         self.next_token_if_or_err(|t| matches!(t, Token::LeftParen))
             .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionLeftParen))?;
@@ -279,7 +280,7 @@ impl<'a> Parser<'a> {
                 let Token::Identifier(name) = t.value() else {
                     unreachable!()
                 };
-                params.push(name.to_owned());
+                params.push(t.co_locate(name.to_owned()));
                 if self.next_token_if(|t| matches!(t, Token::Comma)).is_none() {
                     break;
                 }
@@ -293,14 +294,7 @@ impl<'a> Parser<'a> {
             .map_err(|e| e.co_locate(SyntaxError::UnopenedBlock))?;
 
         let body = self.block()?;
-        Ok(Stmt::Function(
-            Function {
-                name: name.to_owned(),
-                body,
-                params,
-            }
-            .into(),
-        ))
+        Ok(Stmt::Function(Function { name, body, params }.into()))
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, Located<SyntaxError>> {

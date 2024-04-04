@@ -8,7 +8,9 @@ pub enum Stmt {
     Expression(Expr),
     Function(Rc<Function>),
     Print(Expr),
-    Return(Expr),
+    // .0 stores location of "return" lexeme
+    // TODO: implement less hacky solution
+    Return(Located<()>, Expr),
     Var(Located<String>, Option<Expr>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
@@ -16,7 +18,7 @@ pub enum Stmt {
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    pub name: String,
-    pub params: Vec<String>,
+    pub name: Located<String>,
+    pub params: Vec<Located<String>>,
     pub body: Vec<Stmt>,
 }

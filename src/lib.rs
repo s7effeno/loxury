@@ -92,7 +92,7 @@ mod error {
         ExpectedSemicolonAfterForCondition,
         ExpectedVariableName,
         InvalidAssignmentTarget,
-        SelfReferencialVariableInitializer,
+        SelfReferencialVariableInitializer(String),
         StrayCharacter(char),
         TooManyArguments,
         UnclosedArgumentsList,
@@ -101,6 +101,8 @@ mod error {
         UnclosedStatement,
         UnclosedString,
         UnopenedBlock,
+        TopLevelReturn,
+        VariableRedeclaration(String),
     }
 
     impl Display for Syntax {
@@ -145,8 +147,14 @@ mod error {
                 Self::UnopenedBlock => {
                     write!(f, "expected '{{' before block")
                 }
-                Self::SelfReferencialVariableInitializer => {
-                    write!(f, "can't read local variable in its own initalizer")
+                Self::SelfReferencialVariableInitializer(v) => {
+                    write!(f, "can't read local variable '{}' in its own initalizer", v)
+                }
+                Self::TopLevelReturn => {
+                    write!(f, "can't return from top-level code")
+                }
+                Self::VariableRedeclaration(v) => {
+                    write!(f, "variable '{}' already declared in this scope", v)
                 }
             }
         }
