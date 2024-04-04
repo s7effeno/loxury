@@ -84,6 +84,10 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(cond);
                 self.resolve_stmt(body);
             }
+            Stmt::Class(name, _) => {
+                self.declare(name);
+                self.define(name.value());
+            }
         }
     }
 

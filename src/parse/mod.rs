@@ -9,6 +9,8 @@ pub use expr::{Expr, Literal};
 pub use stmt::Function;
 pub use stmt::Stmt;
 
+use std::rc::Rc;
+
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
     errors: Vec<Located<SyntaxError>>,
@@ -76,13 +78,38 @@ impl<'a> Parser<'a> {
     }
 
     fn declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        if self.next_token_if(|t| matches!(t, Token::Fun)).is_some() {
-            self.function("function")
+        if self.next_token_if(|t| matches!(t, Token::Class)).is_some() {
+            self.class_declaration()
+        } else if self.next_token_if(|t| matches!(t, Token::Fun)).is_some() {
+            Ok(Stmt::Function(self.function("function")?))
         } else if self.next_token_if(|t| matches!(t, Token::Var)).is_some() {
             self.var_declaration()
         } else {
             self.statement()
         }
+    }
+
+    fn class_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
+        let t = self
+            .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+            .map_err(|e| e.co_locate(SyntaxError::ExpectedClassName))?;
+        let Token::Identifier(name) = t.value() else {
+            unreachable!()
+        };
+        let name = t.co_locate(name.to_owned());
+
+        self.next_token_if_or_err(|t| matches!(t, Token::LeftBrace))
+            .map_err(|e| e.co_locate(SyntaxError::UnopenedBlock))?;
+
+        let mut methods = Vec::new();
+        while self.peek_token().is_some_and(|t| !matches!(t.value(), Token::RightBrace)) {
+            methods.push(self.function("method")?);
+        }
+
+        self.next_token_if_or_err(|t| matches!(t, Token::RightBrace))
+            .map_err(|e| e.co_locate(SyntaxError::UnclosedBlock))?;
+
+        Ok(Stmt::Class(name, methods))
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -255,7 +282,7 @@ impl<'a> Parser<'a> {
             .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))
     }
 
-    fn function(&mut self, kind: &str) -> Result<Stmt, Located<SyntaxError>> {
+    fn function(&mut self, kind: &str) -> Result<Rc<Function>, Located<SyntaxError>> {
         let t = self
             .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
             .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionName))?;
@@ -294,7 +321,7 @@ impl<'a> Parser<'a> {
             .map_err(|e| e.co_locate(SyntaxError::UnopenedBlock))?;
 
         let body = self.block()?;
-        Ok(Stmt::Function(Function { name, body, params }.into()))
+        Ok(Function { name, body, params }.into())
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, Located<SyntaxError>> {

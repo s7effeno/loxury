@@ -7,6 +7,7 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     Expression(Expr),
     Function(Rc<Function>),
+    Class(Located<String>, Vec<Rc<Function>>),
     Print(Expr),
     // .0 stores location of "return" lexeme
     // TODO: implement less hacky solution

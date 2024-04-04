@@ -103,13 +103,14 @@ mod error {
         UnopenedBlock,
         TopLevelReturn,
         VariableRedeclaration(String),
+        ExpectedClassName,
     }
 
     impl Display for Syntax {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result {
             match self {
                 Self::UnclosedString => write!(f, "expected '\"' at the end of string"),
-                Self::StrayCharacter(c) => write!(f, "stray {} in program", c),
+                Self::StrayCharacter(c) => write!(f, "stray '{}' in program", c),
                 Self::ExpectedExpression => write!(f, "expected expression"),
                 Self::UnclosedGrouping => {
                     write!(f, "expected ')' at the end of grouping expression")
@@ -155,6 +156,9 @@ mod error {
                 }
                 Self::VariableRedeclaration(v) => {
                     write!(f, "variable '{}' already declared in this scope", v)
+                }
+                Self::ExpectedClassName => {
+                    write!(f, "expected class name")
                 }
             }
         }

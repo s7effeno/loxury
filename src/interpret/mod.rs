@@ -57,6 +57,7 @@ impl Display for Object {
 pub enum LoxFunction {
     User {
         declaration: Rc<Function>,
+        closure: Environment,
     },
     Foreign {
         arity: u8,
@@ -65,9 +66,16 @@ pub enum LoxFunction {
 }
 
 impl LoxFunction {
+    fn new(declaration: Rc<Function>, closure: &Environment) -> Rc<Self> {
+        Self::User {
+            declaration,
+            closure: closure.clone()
+        }.into()
+    }
+
     fn arity(&self) -> u8 {
         match self {
-            Self::User { declaration } => declaration.params.len() as u8,
+            Self::User { declaration, .. } => declaration.params.len() as u8,
             Self::Foreign { arity, .. } => *arity,
         }
     }
@@ -78,8 +86,8 @@ impl LoxFunction {
         arguments: Vec<Object>,
     ) -> Result<Object, Located<RuntimeError>> {
         match self {
-            Self::User { declaration } => {
-                let environment = interpreter.environment.nest();
+            Self::User { declaration, closure } => {
+                let environment = closure.nest();
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
                     environment.define(name.value(), value);
                 }
@@ -95,10 +103,14 @@ impl LoxFunction {
     }
 }
 
+pub struct LoxClass {
+
+}
+
 impl Display for LoxFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::User { declaration } => write!(f, "<fn {}>", declaration.name.value()),
+            Self::User { declaration, .. } => write!(f, "<fn {}>", declaration.name.value()),
             Self::Foreign { .. } => write!(f, "<foreign fn>"),
         }
     }
@@ -344,10 +356,10 @@ impl Interpreter {
                 self.environment.define(
                     f.name.value(),
                     Object::Function(
-                        LoxFunction::User {
-                            declaration: f.clone(),
-                        }
-                        .into(),
+                        LoxFunction::new(
+                            f.clone(),
+                            &self.environment,
+                        )
                     ),
                 );
                 Ok(())
@@ -355,6 +367,10 @@ impl Interpreter {
             Stmt::Return(_, v) => {
                 let v = self.evaluate(&v)?;
                 Err(v.into())
+            }
+            Stmt::Class(name, methods) => {
+                self.environment.define(name.value(), Object::Nil);
+                Ok(())
             }
         }
     }
