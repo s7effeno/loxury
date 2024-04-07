@@ -4,6 +4,7 @@ use crate::parse::Function;
 use crate::parse::{Expr, Literal, Stmt};
 use crate::Either;
 use crate::Located;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::mem;
@@ -28,6 +29,9 @@ pub enum Object {
     String(String),
     Nil,
     Function(Rc<LoxFunction>),
+    Class(Rc<LoxClass>),
+    // TODO: check if RefCell is avoidable
+    Instance(Rc<RefCell<LoxInstance>>),
 }
 
 impl From<Literal> for Object {
@@ -44,11 +48,13 @@ impl From<Literal> for Object {
 impl Display for Object {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Boolean(v) => write!(f, "{}", v),
-            Self::Number(v) => write!(f, "{}", v),
-            Self::String(v) => write!(f, "{}", v),
+            Self::Boolean(v) => write!(f, "{v}"),
+            Self::Number(v) => write!(f, "{v}"),
+            Self::String(v) => write!(f, "{v}"),
             Self::Nil => write!(f, "nil"),
-            Self::Function(v) => write!(f, "{}", v),
+            Self::Function(v) => write!(f, "{v}"),
+            Self::Class(v) => write!(f, "{v}"),
+            Self::Instance(v) => write!(f, "{}", v.borrow()),
         }
     }
 }
@@ -58,6 +64,7 @@ pub enum LoxFunction {
     User {
         declaration: Rc<Function>,
         closure: Environment,
+        is_initializer: bool,
     },
     Foreign {
         arity: u8,
@@ -66,11 +73,27 @@ pub enum LoxFunction {
 }
 
 impl LoxFunction {
-    fn new(declaration: Rc<Function>, closure: &Environment) -> Rc<Self> {
+    fn new(declaration: Rc<Function>, closure: &Environment, is_initializer: bool) -> Rc<Self> {
         Self::User {
             declaration,
-            closure: closure.clone()
-        }.into()
+            closure: closure.clone(),
+            is_initializer,
+        }
+        .into()
+    }
+
+    fn bind(&self, instance: Rc<RefCell<LoxInstance>>) -> Rc<Self> {
+        let Self::User {
+            declaration,
+            closure,
+            is_initializer,
+        } = self
+        else {
+            unreachable!()
+        };
+        let environment = closure.nest();
+        environment.define("this", Object::Instance(instance));
+        LoxFunction::new(declaration.clone(), &environment, *is_initializer).into()
     }
 
     fn arity(&self) -> u8 {
@@ -86,15 +109,20 @@ impl LoxFunction {
         arguments: Vec<Object>,
     ) -> Result<Object, Located<RuntimeError>> {
         match self {
-            Self::User { declaration, closure } => {
+            Self::User {
+                declaration,
+                closure,
+                is_initializer,
+            } => {
                 let environment = closure.nest();
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
                     environment.define(name.value(), value);
                 }
                 let ret = match interpreter.execute_block(&declaration.body, environment) {
+                    Err(Unwinder::A(err)) => Err(err),
+                    _ if *is_initializer => Ok(closure.get_at(0, "this")),
                     Ok(()) => Ok(Object::Nil),
                     Err(Unwinder::B(ret)) => Ok(ret),
-                    Err(Unwinder::A(err)) => Err(err),
                 };
                 ret
             }
@@ -103,16 +131,92 @@ impl LoxFunction {
     }
 }
 
-pub struct LoxClass {
-
-}
-
 impl Display for LoxFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::User { declaration, .. } => write!(f, "<fn {}>", declaration.name.value()),
             Self::Foreign { .. } => write!(f, "<foreign fn>"),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct LoxClass {
+    name: String,
+    methods: HashMap<String, Rc<LoxFunction>>,
+}
+
+impl LoxClass {
+    fn new(name: &str, methods: HashMap<String, Rc<LoxFunction>>) -> Self {
+        Self {
+            name: name.into(),
+            methods,
+        }
+    }
+}
+
+impl LoxClass {
+    pub fn arity(&self) -> u8 {
+        self.find_method("init").map(|m| m.arity()).unwrap_or(0)
+    }
+
+    pub fn call(
+        class: Rc<Self>,
+        interpreter: &mut Interpreter,
+        arguments: Vec<Object>,
+    ) -> Result<Object, Located<RuntimeError>> {
+        let instance = Rc::new(RefCell::new(LoxInstance {
+            class: class.clone(),
+            fields: HashMap::new(),
+        }));
+        class
+            .find_method("init")
+            .map(|m| m.bind(instance.clone()).call(interpreter, arguments));
+        Ok(Object::Instance(instance))
+    }
+
+    pub fn find_method(&self, name: &str) -> Option<Rc<LoxFunction>> {
+        self.methods.get(name).cloned()
+    }
+}
+
+impl Display for LoxClass {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+#[derive(Debug)]
+pub struct LoxInstance {
+    class: Rc<LoxClass>,
+    fields: HashMap<String, Object>,
+}
+
+impl Display for LoxInstance {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} instance", self.class)
+    }
+}
+
+impl LoxInstance {
+    pub fn get(instance: Rc<RefCell<Self>>, name: &str) -> Result<Object, ()> {
+        instance
+            .borrow()
+            .fields
+            .get(name)
+            .cloned()
+            .or_else(|| {
+                instance
+                    .borrow()
+                    .class
+                    .find_method(name)
+                    .map(|m| Object::Function(m.bind(instance.clone())))
+            })
+            .ok_or(())
+    }
+
+    pub fn set(&mut self, name: &str, value: Object) {
+        self.fields.insert(name.into(), value);
     }
 }
 
@@ -302,16 +406,47 @@ impl Interpreter {
                 for arg in args {
                     expanded_args.push(self.evaluate(arg)?);
                 }
-                let Object::Function(f) = callee else {
-                    return Err(paren.co_locate(RuntimeError::NotCallable));
-                };
-                let expected = f.arity();
                 let actual = args.len() as u8;
-                if expected != actual {
-                    return Err(paren.co_locate(RuntimeError::WrongArity(expected, actual)));
+                match callee {
+                    Object::Function(f) => {
+                        let expected = f.arity();
+                        if expected != actual {
+                            Err(paren.co_locate(RuntimeError::WrongArity(expected, actual)))
+                        } else {
+                            f.call(self, expanded_args)
+                        }
+                    }
+                    Object::Class(c) => {
+                        let expected = c.arity();
+                        if expected != actual {
+                            Err(paren.co_locate(RuntimeError::WrongArity(expected, actual)))
+                        } else {
+                            LoxClass::call(c, self, expanded_args)
+                        }
+                    }
+                    _ => return Err(paren.co_locate(RuntimeError::NotCallable)),
                 }
-                f.call(self, expanded_args)
             }
+            Expr::Get(e, name) => {
+                let object = self.evaluate(e)?;
+                if let Object::Instance(instance) = object {
+                    LoxInstance::get(instance, name.value()).map_err(|_| {
+                        name.co_locate(RuntimeError::UndefinedProperty(name.value().into()))
+                    })
+                } else {
+                    Err(name.co_locate(RuntimeError::NotGettable))
+                }
+            }
+            Expr::Set(object, name, value) => {
+                let object = self.evaluate(object)?;
+                let Object::Instance(instance) = object else {
+                    return Err(name.co_locate(RuntimeError::NotGettable));
+                };
+                let value = self.evaluate(value)?;
+                instance.borrow_mut().set(name.value(), value.clone());
+                Ok(value)
+            }
+            Expr::This(_) => Ok(self.lookup_variable("this", expr).unwrap()),
         }
     }
 
@@ -355,12 +490,7 @@ impl Interpreter {
             Stmt::Function(f) => {
                 self.environment.define(
                     f.name.value(),
-                    Object::Function(
-                        LoxFunction::new(
-                            f.clone(),
-                            &self.environment,
-                        )
-                    ),
+                    Object::Function(LoxFunction::new(f.clone(), &self.environment, false)),
                 );
                 Ok(())
             }
@@ -370,6 +500,22 @@ impl Interpreter {
             }
             Stmt::Class(name, methods) => {
                 self.environment.define(name.value(), Object::Nil);
+                let class_methods = methods
+                    .into_iter()
+                    .map(|m| {
+                        (
+                            m.name.value().into(),
+                            LoxFunction::new(m.clone(), &self.environment, name.value() == "init")
+                                .into(),
+                        )
+                    })
+                    .collect();
+                self.environment
+                    .assign(
+                        name.value(),
+                        Object::Class(LoxClass::new(name.value(), class_methods).into()),
+                    )
+                    .unwrap();
                 Ok(())
             }
         }

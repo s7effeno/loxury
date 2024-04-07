@@ -27,9 +27,13 @@ pub enum Expr {
     Assign(Located<String>, Box<Expr>),
     Binary(Box<Expr>, Located<Token>, Box<Expr>),
     Call(Box<Expr>, Located<Token>, Vec<Expr>),
+    Get(Box<Expr>, Located<String>),
     Grouping(Box<Expr>),
     Literal(Literal),
     Logical(Box<Expr>, Located<Token>, Box<Expr>),
     Unary(Located<Token>, Box<Expr>),
     Variable(Located<String>),
+    Set(Box<Expr>, Located<String>, Box<Expr>),
+    // `Located<()>` only stores `this` location
+    This(Located<()>),
 }

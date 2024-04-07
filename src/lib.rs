@@ -104,6 +104,9 @@ mod error {
         TopLevelReturn,
         VariableRedeclaration(String),
         ExpectedClassName,
+        ExpectedPropertyName,
+        ThisOutsideClass,
+        InitializerReturn,
     }
 
     impl Display for Syntax {
@@ -160,6 +163,15 @@ mod error {
                 Self::ExpectedClassName => {
                     write!(f, "expected class name")
                 }
+                Self::ExpectedPropertyName => {
+                    write!(f, "expected property name after '.'")
+                }
+                Self::ThisOutsideClass => {
+                    write!(f, "can't use 'this' outside of a class")
+                }
+                Self::InitializerReturn => {
+                    write!(f, "can't return a value from an initializer")
+                }
             }
         }
     }
@@ -173,7 +185,9 @@ mod error {
         ExpectedNumbersOrStrings,
         UndefinedVariable(String),
         NotCallable,
+        NotGettable,
         WrongArity(u8, u8),
+        UndefinedProperty(String),
     }
 
     impl Display for Runtime {
@@ -190,8 +204,14 @@ mod error {
                 Self::NotCallable => {
                     write!(f, "can only call functions and classes")
                 }
+                Self::NotGettable => {
+                    write!(f, "only instances have properties")
+                }
                 Self::WrongArity(expected, actual) => {
                     write!(f, "expected {} arguments, got {}", expected, actual)
+                }
+                Self::UndefinedProperty(name) => {
+                    write!(f, "undefined property {}", name)
                 }
             }
         }

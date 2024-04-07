@@ -1,3 +1,5 @@
+// TODO: implement better way to handle Identifiers
+//       improve next_token_if_or_err
 mod expr;
 mod stmt;
 use std::iter::Peekable;
@@ -6,8 +8,7 @@ use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
 use crate::Located;
 pub use expr::{Expr, Literal};
-pub use stmt::Function;
-pub use stmt::Stmt;
+pub use stmt::{Function, Stmt};
 
 use std::rc::Rc;
 
@@ -81,7 +82,7 @@ impl<'a> Parser<'a> {
         if self.next_token_if(|t| matches!(t, Token::Class)).is_some() {
             self.class_declaration()
         } else if self.next_token_if(|t| matches!(t, Token::Fun)).is_some() {
-            Ok(Stmt::Function(self.function("function")?))
+            Ok(Stmt::Function(self.function()?))
         } else if self.next_token_if(|t| matches!(t, Token::Var)).is_some() {
             self.var_declaration()
         } else {
@@ -102,8 +103,11 @@ impl<'a> Parser<'a> {
             .map_err(|e| e.co_locate(SyntaxError::UnopenedBlock))?;
 
         let mut methods = Vec::new();
-        while self.peek_token().is_some_and(|t| !matches!(t.value(), Token::RightBrace)) {
-            methods.push(self.function("method")?);
+        while self
+            .peek_token()
+            .is_some_and(|t| !matches!(t.value(), Token::RightBrace))
+        {
+            methods.push(self.function()?);
         }
 
         self.next_token_if_or_err(|t| matches!(t, Token::RightBrace))
@@ -282,7 +286,7 @@ impl<'a> Parser<'a> {
             .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))
     }
 
-    fn function(&mut self, kind: &str) -> Result<Rc<Function>, Located<SyntaxError>> {
+    fn function(&mut self) -> Result<Rc<Function>, Located<SyntaxError>> {
         let t = self
             .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
             .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionName))?;
@@ -348,11 +352,13 @@ impl<'a> Parser<'a> {
 
         if let Some(t) = self.next_token_if(|t| matches!(t, Token::Equal)) {
             let value = self.assignment()?;
-            if let Expr::Variable(name) = expr {
-                Ok(Expr::Assign(name, Box::new(value)))
-            } else {
-                self.error(t.co_locate(SyntaxError::InvalidAssignmentTarget));
-                Ok(expr)
+            match expr {
+                Expr::Variable(name) => Ok(Expr::Assign(name, value.into())),
+                Expr::Get(object, name) => Ok(Expr::Set(object, name, value.into())),
+                _ => {
+                    self.error(t.co_locate(SyntaxError::InvalidAssignmentTarget));
+                    Ok(expr)
+                }
             }
         } else {
             Ok(expr)
@@ -365,7 +371,7 @@ impl<'a> Parser<'a> {
         while let Some(t) = self.next_token_if(|t| matches!(t, Token::Or)) {
             let operator = t.clone();
             let right = self.and()?;
-            expr = Expr::Logical(Box::new(expr), operator, Box::new(right));
+            expr = Expr::Logical(expr.into(), operator, right.into());
         }
 
         Ok(expr)
@@ -479,8 +485,19 @@ impl<'a> Parser<'a> {
         let mut expr = self.primary()?;
 
         loop {
-            if let Some(_) = self.next_token_if(|t| matches!(t, Token::LeftParen)) {
+            if self
+                .next_token_if(|t| matches!(t, Token::LeftParen))
+                .is_some()
+            {
                 expr = self.finish_call(expr)?;
+            } else if self.next_token_if(|t| matches!(t, Token::Dot)).is_some() {
+                let t = self
+                    .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+                    .map_err(|e| e.co_locate(SyntaxError::ExpectedPropertyName))?;
+                let Token::Identifier(name) = t.value() else {
+                    unreachable!()
+                };
+                expr = Expr::Get(expr.into(), t.co_locate(name.into()))
             } else {
                 break;
             }
@@ -496,6 +513,8 @@ impl<'a> Parser<'a> {
             Ok(Expr::Literal(Literal::Boolean(true)))
         } else if self.next_token_if(|t| matches!(t, Token::Nil)).is_some() {
             Ok(Expr::Literal(Literal::Nil))
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::This)) {
+            Ok(Expr::This(t.co_locate(())))
         } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Number(_))) {
             let Token::Number(n) = t.value() else {
                 unreachable!()

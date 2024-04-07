@@ -1,6 +1,6 @@
 use crate::error::Syntax as SyntaxError;
 use crate::interpret::Interpreter;
-use crate::parse::{Expr, Function, Stmt};
+use crate::parse::{Expr, Function, Literal, Stmt};
 use crate::Located;
 use std::collections::HashMap;
 use std::mem;
@@ -8,6 +8,13 @@ use std::mem;
 enum FunctionKind {
     None,
     Function,
+    Initializer,
+    Method,
+}
+
+enum ClassKind {
+    None,
+    Class,
 }
 
 pub struct Resolver<'a> {
@@ -15,6 +22,7 @@ pub struct Resolver<'a> {
     interpreter: &'a mut Interpreter,
     errors: Vec<Located<SyntaxError>>,
     current_function: FunctionKind,
+    current_class: ClassKind,
 }
 
 impl<'a> Resolver<'a> {
@@ -24,6 +32,7 @@ impl<'a> Resolver<'a> {
             interpreter,
             errors: Vec::new(),
             current_function: FunctionKind::None,
+            current_class: ClassKind::None,
         }
     }
 
@@ -61,8 +70,12 @@ impl<'a> Resolver<'a> {
             }
             Stmt::Print(e) => self.resolve_expr(e),
             Stmt::Return(loc, e) => {
-                if let FunctionKind::None = self.current_function {
-                    self.error(loc.co_locate(SyntaxError::TopLevelReturn));
+                match self.current_function {
+                    FunctionKind::None => self.error(loc.co_locate(SyntaxError::TopLevelReturn)),
+                    FunctionKind::Initializer if !matches!(e, Expr::Literal(Literal::Nil)) => {
+                        self.error(loc.co_locate(SyntaxError::InitializerReturn))
+                    }
+                    _ => (),
                 }
                 self.resolve_expr(e);
             }
@@ -84,9 +97,23 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(cond);
                 self.resolve_stmt(body);
             }
-            Stmt::Class(name, _) => {
-                self.declare(name);
+            Stmt::Class(name, methods) => {
+                let enclosing_class = mem::replace(&mut self.current_class, ClassKind::Class);
+                self.declare(&name);
                 self.define(name.value());
+                self.begin_scope();
+                self.scopes.last_mut().unwrap().insert("this", true);
+                for method in methods {
+                    let declaration = if method.name.value() == "init" {
+                        FunctionKind::Initializer
+                    } else {
+                        FunctionKind::Method
+                    };
+
+                    self.resolve_function(method, declaration);
+                }
+                self.end_scope();
+                self.current_class = enclosing_class;
             }
         }
     }
@@ -129,6 +156,19 @@ impl<'a> Resolver<'a> {
                 } else {
                     self.resolve_local(expr, name.value());
                 }
+            }
+            Expr::Get(e, _) => {
+                self.resolve_expr(e);
+            }
+            Expr::Set(object, _, value) => {
+                self.resolve_expr(object);
+                self.resolve_expr(value);
+            }
+            Expr::This(loc) => {
+                if let ClassKind::None = self.current_class {
+                    self.error(loc.co_locate(SyntaxError::ThisOutsideClass));
+                }
+                self.resolve_local(expr, "this");
             }
         }
     }
