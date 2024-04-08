@@ -281,14 +281,16 @@ impl Interpreter {
     }
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Object, Located<RuntimeError>> {
-        // maybe implement directly in object?
+        // TODO: maybe implement directly in object?
         fn is_equal(left: Object, right: Object) -> bool {
             match (left, right) {
                 (Object::Nil, Object::Nil) => true,
                 (Object::Boolean(left), Object::Boolean(right)) => left == right,
                 (Object::Number(left), Object::Number(right)) => left == right,
                 (Object::String(left), Object::String(right)) => left == right,
-                // TODO: add remaining checks
+                (Object::Function(left), Object::Function(right)) => Rc::ptr_eq(&left, &right),
+                (Object::Class(left), Object::Class(right)) => Rc::ptr_eq(&left, &right),
+                (Object::Instance(left), Object::Instance(right)) => Rc::ptr_eq(&left, &right),
                 _ => false,
             }
         }
