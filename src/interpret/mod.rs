@@ -30,7 +30,6 @@ pub enum Object {
     Nil,
     Function(Rc<LoxFunction>),
     Class(Rc<LoxClass>),
-    // TODO: check if RefCell is avoidable
     Instance(Rc<RefCell<LoxInstance>>),
 }
 
@@ -143,13 +142,19 @@ impl Display for LoxFunction {
 #[derive(Debug)]
 pub struct LoxClass {
     name: String,
+    superclass: Option<Rc<Self>>,
     methods: HashMap<String, Rc<LoxFunction>>,
 }
 
 impl LoxClass {
-    fn new(name: &str, methods: HashMap<String, Rc<LoxFunction>>) -> Self {
+    fn new(
+        name: &str,
+        superclass: Option<Rc<Self>>,
+        methods: HashMap<String, Rc<LoxFunction>>,
+    ) -> Self {
         Self {
             name: name.into(),
+            superclass,
             methods,
         }
     }
@@ -176,7 +181,10 @@ impl LoxClass {
     }
 
     pub fn find_method(&self, name: &str) -> Option<Rc<LoxFunction>> {
-        self.methods.get(name).cloned()
+        self.methods
+            .get(name)
+            .cloned()
+            .or_else(|| self.superclass.as_ref().and_then(|s| s.find_method(name)))
     }
 }
 
@@ -447,6 +455,19 @@ impl Interpreter {
                 Ok(value)
             }
             Expr::This(_) => Ok(self.lookup_variable("this", expr).unwrap()),
+            Expr::Super(loc, method) => {
+                let distance = *self.locals.get(&(expr as *const Expr)).unwrap();
+                let Object::Class(superclass) = self.environment.get_at(distance, "super") else {
+                    unreachable!()
+                };
+                let Object::Instance(object) = self.environment.get_at(distance - 1, "this") else {
+                    unreachable!()
+                };
+                let method = superclass.find_method(method.value()).ok_or_else(|| {
+                    loc.co_locate(RuntimeError::UndefinedProperty(method.value().clone()))
+                })?;
+                Ok(Object::Function(method.bind(object)))
+            }
         }
     }
 
@@ -498,8 +519,30 @@ impl Interpreter {
                 let v = self.evaluate(&v)?;
                 Err(v.into())
             }
-            Stmt::Class(name, methods) => {
+            Stmt::Class(name, superclass, methods) => {
+                let superclass = if let Some(superclass) = superclass {
+                    if let Object::Class(superclass) = self.evaluate(superclass)? {
+                        Some(superclass)
+                    } else {
+                        let Expr::Variable(superclass_name) = superclass else {
+                            unreachable!()
+                        };
+                        return Err(Either::A(
+                            superclass_name.co_locate(RuntimeError::NotInheritable),
+                        ));
+                    }
+                } else {
+                    None
+                };
+
                 self.environment.define(name.value(), Object::Nil);
+
+                if let Some(ref superclass) = superclass {
+                    self.environment = self.environment.nest();
+                    self.environment
+                        .define("super", Object::Class(superclass.clone()));
+                }
+
                 let class_methods = methods
                     .into_iter()
                     .map(|m| {
@@ -510,10 +553,17 @@ impl Interpreter {
                         )
                     })
                     .collect();
+
+                if superclass.is_some() {
+                    self.environment = self.environment.enclosing().unwrap();
+                }
+
                 self.environment
                     .assign(
                         name.value(),
-                        Object::Class(LoxClass::new(name.value(), class_methods).into()),
+                        Object::Class(
+                            LoxClass::new(name.value(), superclass, class_methods).into(),
+                        ),
                     )
                     .unwrap();
                 Ok(())

@@ -17,7 +17,6 @@ impl Display for Literal {
             Self::Number(v) => write!(f, "{}", v),
             Self::String(v) => write!(f, "{}", v),
             Self::Nil => write!(f, "nil"),
-            // Self::Function(name, _, _) => write!(f, "<fn {}>", name),
         }
     }
 }
@@ -36,4 +35,5 @@ pub enum Expr {
     Set(Box<Expr>, Located<String>, Box<Expr>),
     // `Located<()>` only stores `this` location
     This(Located<()>),
+    Super(Located<()>, Located<String>),
 }

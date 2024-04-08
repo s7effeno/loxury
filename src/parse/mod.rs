@@ -99,6 +99,18 @@ impl<'a> Parser<'a> {
         };
         let name = t.co_locate(name.to_owned());
 
+        let superclass = if self.next_token_if(|t| matches!(t, Token::Less)).is_some() {
+            let t = self
+                .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+                .map_err(|e| e.co_locate(SyntaxError::ExpectedSuperClassName))?;
+            let Token::Identifier(superclass) = t.value() else {
+                unreachable!()
+            };
+            Some(Expr::Variable(t.co_locate(superclass.into())))
+        } else {
+            None
+        };
+
         self.next_token_if_or_err(|t| matches!(t, Token::LeftBrace))
             .map_err(|e| e.co_locate(SyntaxError::UnopenedBlock))?;
 
@@ -113,7 +125,7 @@ impl<'a> Parser<'a> {
         self.next_token_if_or_err(|t| matches!(t, Token::RightBrace))
             .map_err(|e| e.co_locate(SyntaxError::UnclosedBlock))?;
 
-        Ok(Stmt::Class(name, methods))
+        Ok(Stmt::Class(name, superclass, methods))
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -515,6 +527,18 @@ impl<'a> Parser<'a> {
             Ok(Expr::Literal(Literal::Nil))
         } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::This)) {
             Ok(Expr::This(t.co_locate(())))
+        } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Super)) {
+            let loc = t.co_locate(());
+            self.next_token_if_or_err(|t| matches!(t, Token::Dot))
+                .map_err(|e| e.co_locate(SyntaxError::ExpectedSuperClassName))?;
+            let t = self
+                .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+                .map_err(|e| e.co_locate(SyntaxError::IncompleteSuper))?;
+            let Token::Identifier(method) = t.value() else {
+                unreachable!()
+            };
+            let method = t.co_locate(method.into());
+            Ok(Expr::Super(loc, method))
         } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Number(_))) {
             let Token::Number(n) = t.value() else {
                 unreachable!()

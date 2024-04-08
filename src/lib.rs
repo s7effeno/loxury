@@ -107,6 +107,11 @@ mod error {
         ExpectedPropertyName,
         ThisOutsideClass,
         InitializerReturn,
+        ExpectedSuperClassName,
+        SelfInheritingClass,
+        IncompleteSuper,
+        SuperOutsideClass,
+        NoSuperClass,
     }
 
     impl Display for Syntax {
@@ -172,6 +177,21 @@ mod error {
                 Self::InitializerReturn => {
                     write!(f, "can't return a value from an initializer")
                 }
+                Self::ExpectedSuperClassName => {
+                    write!(f, "expected superclass name")
+                }
+                Self::SelfInheritingClass => {
+                    write!(f, "a class can't inherit from itself")
+                }
+                Self::IncompleteSuper => {
+                    write!(f, "expected superclass method name")
+                }
+                Self::SuperOutsideClass => {
+                    write!(f, "can't use 'super' outside of a class")
+                }
+                Self::NoSuperClass => {
+                    write!(f, "can't use 'super' in a class with no superclass")
+                }
             }
         }
     }
@@ -188,6 +208,7 @@ mod error {
         NotGettable,
         WrongArity(u8, u8),
         UndefinedProperty(String),
+        NotInheritable,
     }
 
     impl Display for Runtime {
@@ -212,6 +233,9 @@ mod error {
                 }
                 Self::UndefinedProperty(name) => {
                     write!(f, "undefined property {}", name)
+                }
+                Self::NotInheritable => {
+                    write!(f, "superclass must be a class")
                 }
             }
         }

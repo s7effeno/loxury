@@ -7,7 +7,8 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     Expression(Expr),
     Function(Rc<Function>),
-    Class(Located<String>, Vec<Rc<Function>>),
+    // `.1` stores eventual superclass
+    Class(Located<String>, Option<Expr>, Vec<Rc<Function>>),
     Print(Expr),
     // .0 stores location of "return" lexeme
     // TODO: implement less hacky solution

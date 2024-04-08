@@ -15,6 +15,7 @@ enum FunctionKind {
 enum ClassKind {
     None,
     Class,
+    SubClass,
 }
 
 pub struct Resolver<'a> {
@@ -97,10 +98,23 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(cond);
                 self.resolve_stmt(body);
             }
-            Stmt::Class(name, methods) => {
+            Stmt::Class(name, superclass, methods) => {
                 let enclosing_class = mem::replace(&mut self.current_class, ClassKind::Class);
                 self.declare(&name);
                 self.define(name.value());
+                if let Some(superclass) = superclass {
+                    self.current_class = ClassKind::SubClass;
+                    let Expr::Variable(superclass_name) = superclass else {
+                        unreachable!()
+                    };
+                    if superclass_name.value() == name.value() {
+                        self.error(name.co_locate(SyntaxError::SelfInheritingClass));
+                    }
+                    self.resolve_expr(superclass);
+
+                    self.begin_scope();
+                    self.scopes.last_mut().unwrap().insert("super", true);
+                }
                 self.begin_scope();
                 self.scopes.last_mut().unwrap().insert("this", true);
                 for method in methods {
@@ -113,6 +127,9 @@ impl<'a> Resolver<'a> {
                     self.resolve_function(method, declaration);
                 }
                 self.end_scope();
+                if superclass.is_some() {
+                    self.end_scope();
+                }
                 self.current_class = enclosing_class;
             }
         }
@@ -169,6 +186,14 @@ impl<'a> Resolver<'a> {
                     self.error(loc.co_locate(SyntaxError::ThisOutsideClass));
                 }
                 self.resolve_local(expr, "this");
+            }
+            Expr::Super(loc, _) => {
+                match self.current_class {
+                    ClassKind::None => self.error(loc.co_locate(SyntaxError::SuperOutsideClass)),
+                    ClassKind::Class => self.error(loc.co_locate(SyntaxError::NoSuperClass)),
+                    ClassKind::SubClass => (),
+                }
+                self.resolve_local(expr, "super");
             }
         }
     }

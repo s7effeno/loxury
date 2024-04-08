@@ -96,4 +96,8 @@ impl Environment {
             .into(),
         )
     }
+
+    pub fn enclosing(&self) -> Option<Self> {
+        self.0.borrow().enclosing.clone()
+    }
 }
