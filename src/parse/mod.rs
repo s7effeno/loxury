@@ -1,8 +1,7 @@
 // TODO: implement better way to handle Identifiers
 //       improve next_token_if_or_err
-mod expr;
-mod stmt;
 use std::iter::Peekable;
+use std::rc::Rc;
 
 use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
@@ -10,7 +9,8 @@ use crate::Located;
 pub use expr::{Expr, Literal};
 pub use stmt::{Function, Stmt};
 
-use std::rc::Rc;
+mod expr;
+mod stmt;
 
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,
@@ -27,7 +27,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse(&mut self) -> Result<Vec<Stmt>, ()> {
         let statements = self.collect();
-        if self.errors.len() > 0 {
+        if !self.errors.is_empty() {
             Err(())
         } else {
             Ok(statements)
@@ -136,7 +136,7 @@ impl<'a> Parser<'a> {
             unreachable!()
         };
 
-        let initializer = if let Some(_) = self.next_token_if(|t| matches!(t, Token::Equal)) {
+        let initializer = if self.next_token_if(|t| matches!(t, Token::Equal)).is_some() {
             Some(self.expression()?)
         } else {
             None
@@ -610,42 +610,5 @@ impl Iterator for Parser<'_> {
             },
             None => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn aaa() {
-        let mut p = Parser::new(Lexer::new(
-            "
-            var a = 0;
-            var temp;
-
-            for (var b = 1; a < 10000; b = temp + b) {
-              print a;
-              temp = a;
-              a = b;
-            }",
-        ));
-        println!("{:#?}", p.next());
-        println!("{:#?}", p.next());
-        println!("{:#?}", p.next());
-        println!("{:?}", p.errors);
-    }
-
-    #[test]
-    fn bbb() {
-        let mut p = Parser::new(Lexer::new(
-            "
-            fun add(a, b, c) {
-                print a + b + c;
-            }
-            ",
-        ));
-        println!("{:#?}", p.next());
-        println!("{:#?}", p.next());
     }
 }

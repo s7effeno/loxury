@@ -1,9 +1,8 @@
 use crate::error::Runtime as RuntimeError;
 use crate::lex::Token;
-use crate::parse::Function;
-use crate::parse::{Expr, Literal, Stmt};
-use crate::Either;
-use crate::Located;
+use crate::parse::{Function, Expr, Literal, Stmt};
+use crate::{Either, Located};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
@@ -12,7 +11,7 @@ use std::rc::Rc;
 use std::time::UNIX_EPOCH;
 
 mod environment;
-pub use environment::Environment;
+use environment::Environment;
 
 type Unwinder = Either<Located<RuntimeError>, Object>;
 
@@ -92,7 +91,7 @@ impl LoxFunction {
         };
         let environment = closure.nest();
         environment.define("this", Object::Instance(instance));
-        LoxFunction::new(declaration.clone(), &environment, *is_initializer).into()
+        LoxFunction::new(declaration.clone(), &environment, *is_initializer)
     }
 
     fn arity(&self) -> u8 {
@@ -117,13 +116,12 @@ impl LoxFunction {
                 for (value, name) in arguments.into_iter().zip(declaration.params.iter()) {
                     environment.define(name.value(), value);
                 }
-                let ret = match interpreter.execute_block(&declaration.body, environment) {
+                match interpreter.execute_block(&declaration.body, environment) {
                     Err(Unwinder::A(err)) => Err(err),
                     _ if *is_initializer => Ok(closure.get_at(0, "this")),
                     Ok(()) => Ok(Object::Nil),
                     Err(Unwinder::B(ret)) => Ok(ret),
-                };
-                ret
+                }
             }
             Self::Foreign { f, .. } => Ok(f(arguments)),
         }
@@ -264,7 +262,7 @@ impl Interpreter {
 
     pub fn interpret(&mut self, statements: &[Stmt]) -> Result<(), Located<RuntimeError>> {
         for statement in statements {
-            self.execute(&statement).map_err(|e| {
+            self.execute(statement).map_err(|e| {
                 let Either::A(e) = e else { panic!() };
                 e
             })?;
@@ -381,7 +379,7 @@ impl Interpreter {
             }
             Expr::Variable(name) => {
                 self.lookup_variable(name.value(), expr).map_err(|_| {
-                    name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+                    name.co_locate(RuntimeError::UndefinedVariable(name.value().into()))
                 })
             }
             Expr::Assign(name, value) => {
@@ -393,7 +391,7 @@ impl Interpreter {
                         .globals
                         .assign(name.value(), value.clone())
                         .map_err(|_| {
-                            name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+                            name.co_locate(RuntimeError::UndefinedVariable(name.value().into()))
                         })?,
                 }
                 Ok(value)
@@ -404,10 +402,8 @@ impl Interpreter {
                     if Self::is_truthy(&left) {
                         return Ok(left);
                     }
-                } else {
-                    if !Self::is_truthy(&left) {
+                } else if !Self::is_truthy(&left) {
                         return Ok(left);
-                    }
                 }
 
                 self.evaluate(r)
@@ -436,7 +432,7 @@ impl Interpreter {
                             LoxClass::call(c, self, expanded_args)
                         }
                     }
-                    _ => return Err(paren.co_locate(RuntimeError::NotCallable)),
+                    _ => Err(paren.co_locate(RuntimeError::NotCallable)),
                 }
             }
             Expr::Get(e, name) => {
@@ -478,11 +474,11 @@ impl Interpreter {
     fn execute(&mut self, stmt: &Stmt) -> Result<(), Unwinder> {
         match stmt {
             Stmt::Print(e) => {
-                println!("{}", self.evaluate(&e)?);
+                println!("{}", self.evaluate(e)?);
                 Ok(())
             }
             Stmt::Expression(e) => {
-                self.evaluate(&e)?;
+                self.evaluate(e)?;
                 Ok(())
             }
             Stmt::Var(name, init) => {
@@ -495,19 +491,17 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::If(cond, branch_then, branch_else) => {
-                if Self::is_truthy(&self.evaluate(&cond)?) {
+                if Self::is_truthy(&self.evaluate(cond)?) {
                     self.execute(branch_then)
-                } else {
-                    if let Some(branch_else) = branch_else {
+                } else if let Some(branch_else) = branch_else {
                         self.execute(branch_else)?;
                         Ok(())
-                    } else {
+                } else {
                         Ok(())
-                    }
                 }
             }
             Stmt::While(cond, body) => {
-                while Self::is_truthy(&self.evaluate(&cond)?) {
+                while Self::is_truthy(&self.evaluate(cond)?) {
                     self.execute(body)?;
                 }
                 Ok(())
@@ -520,7 +514,7 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Return(_, v) => {
-                let v = self.evaluate(&v)?;
+                let v = self.evaluate(v)?;
                 Err(v.into())
             }
             Stmt::Class(name, superclass, methods) => {
@@ -548,12 +542,11 @@ impl Interpreter {
                 }
 
                 let class_methods = methods
-                    .into_iter()
+                    .iter()
                     .map(|m| {
                         (
                             m.name.value().into(),
                             LoxFunction::new(m.clone(), &self.environment, name.value() == "init")
-                                .into(),
                         )
                     })
                     .collect();
@@ -583,10 +576,10 @@ impl Interpreter {
         let distance = self.locals.get(&(expr as *const Expr));
         match distance {
             Some(d) => {
-                Ok(self.environment.get_at(*d, &name))
+                Ok(self.environment.get_at(*d, name))
             },
             None => {
-                self.globals.get(&name)
+                self.globals.get(name)
             }
         }
     }
@@ -605,114 +598,5 @@ impl Interpreter {
         }
         self.environment = previous;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lex::*;
-    use crate::parse::*;
-
-    #[test]
-    fn fooasd() {
-        let mut p = Parser::new(Lexer::new(
-            "
-            var x = 6;
-            var x;
-            print x;
-            for (var i = 0; i < 10; i = i + 1) {
-                for (var j = 0; j < 10; j = j + 1) {
-                    print i;
-                    print j;
-                }
-            }",
-        ));
-        let mut i = Interpreter::new();
-        // println!("{}", Interpreter::evaluate(p.next)
-        /*println!("{:?}", i.execute(&p.next().unwrap()));
-        println!("{:?}", i.execute(&p.next().unwrap()));
-        println!("{:?}", i.execute(&p.next().unwrap()));
-        println!("{:?}", i.execute(&p.next().unwrap()));*/
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
-    }
-
-    #[test]
-    fn functions() {
-        let mut p = Parser::new(Lexer::new(
-            "
-            fun sayHi(first, last) {
-              print \"Hi, \" + first + \" \" + last + \"!\";
-            }
-
-            sayHi(\"Dear\", \"Reader\");
-            ",
-        ));
-        let mut i = Interpreter::new();
-        /*println!("{:?}", i.execute(&p.next().unwrap()));
-        println!("{:?}", i.execute(&p.next().unwrap()));*/
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
-    }
-
-    #[test]
-    fn function_ret() {
-        let mut p = Parser::new(Lexer::new(
-            "
-            fun sum(a, b) {
-                while (true) {
-                    while (true) {
-                        if (true) {
-                            return a + b;
-                        }
-                    }
-                }
-            }
-            print sum(5, 6);
-            ",
-        ));
-        let mut i = Interpreter::new();
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
-    }
-
-    #[test]
-    fn fib() {
-        let mut p = Parser::new(Lexer::new(
-            "
-            fun fib(n) {
-              if (n <= 1) return n;
-              return fib(n - 2) + fib(n - 1);
-            }
-
-            for (var i = 0; i < 30; i = i + 1) {
-              print fib(i);
-            }
-            ",
-        ));
-        let mut i = Interpreter::new();
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
-    }
-
-    #[test]
-    fn block() {
-        let mut p = Parser::new(Lexer::new(
-            "
-            var a = 5;
-            {
-            var a = a + 1;
-            print a;
-            }
-            print a;
-            ",
-        ));
-        let mut i = Interpreter::new();
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
-        i.execute(&p.next().unwrap());
     }
 }

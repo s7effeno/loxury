@@ -39,7 +39,7 @@ impl<'a> Resolver<'a> {
 
     pub fn resolve(&mut self, statements: &'a [Stmt]) -> Result<(), ()> {
         self._resolve(statements);
-        if self.errors.len() > 0 {
+        if !self.errors.is_empty() {
             Err(())
         } else {
             Ok(())
@@ -100,7 +100,7 @@ impl<'a> Resolver<'a> {
             }
             Stmt::Class(name, superclass, methods) => {
                 let enclosing_class = mem::replace(&mut self.current_class, ClassKind::Class);
-                self.declare(&name);
+                self.declare(name);
                 self.define(name.value());
                 if let Some(superclass) = superclass {
                     self.current_class = ClassKind::SubClass;
