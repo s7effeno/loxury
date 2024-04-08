@@ -174,9 +174,9 @@ impl LoxClass {
             class: class.clone(),
             fields: HashMap::new(),
         }));
-        class
-            .find_method("init")
-            .map(|m| m.bind(instance.clone()).call(interpreter, arguments));
+        if let Some(m) = class.find_method("init") {
+            m.bind(instance.clone()).call(interpreter, arguments)?;
+        }
         Ok(Object::Instance(instance))
     }
 
@@ -377,9 +377,11 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(name) => self.lookup_variable(name.value(), expr).map_err(|_| {
-                name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
-            }),
+            Expr::Variable(name) => {
+                self.lookup_variable(name.value(), expr).map_err(|_| {
+                    name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+                })
+            }
             Expr::Assign(name, value) => {
                 let value = self.evaluate(value)?;
                 let distance = self.locals.get(&(expr as *const Expr));
@@ -578,8 +580,12 @@ impl Interpreter {
     fn lookup_variable(&self, name: &str, expr: &Expr) -> Result<Object, ()> {
         let distance = self.locals.get(&(expr as *const Expr));
         match distance {
-            Some(d) => Ok(self.environment.get_at(*d, &name)),
-            None => self.globals.get(&name),
+            Some(d) => {
+                Ok(self.environment.get_at(*d, &name))
+            },
+            None => {
+                self.globals.get(&name)
+            }
         }
     }
 
