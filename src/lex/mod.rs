@@ -121,133 +121,100 @@ impl Iterator for Lexer<'_> {
             self.row = self.source.row();
             self.col = self.source.col();
 
-            match self.source.peek()? {
-                '(' => {
-                    self.source.next();
-                    self.local_token(Token::LeftParen)
-                }
-                ')' => {
-                    self.source.next();
-                    self.local_token(Token::RightParen)
-                }
-                '{' => {
-                    self.source.next();
-                    self.local_token(Token::LeftBrace)
-                }
-                '}' => {
-                    self.source.next();
-                    self.local_token(Token::RightBrace)
-                }
-                ',' => {
-                    self.source.next();
-                    self.local_token(Token::Comma)
-                }
-                '.' => {
-                    self.source.next();
-                    self.local_token(Token::Dot)
-                }
-                '-' => {
-                    self.source.next();
-                    self.local_token(Token::Minus)
-                }
-                '+' => {
-                    self.source.next();
-                    self.local_token(Token::Plus)
-                }
-                ';' => {
-                    self.source.next();
-                    self.local_token(Token::Semicolon)
-                }
-                '*' => {
-                    self.source.next();
-                    self.local_token(Token::Star)
-                }
-                '/' => {
-                    self.source.next();
-                    match self.source.peek() {
-                        Some('/') => {
-                            self.source
-                                .by_ref()
-                                .take_while(|c| *c != '\n')
-                                .for_each(drop);
-                            self.next()?
-                        }
-                        _ => self.local_token(Token::Slash),
-                    }
-                }
-                '!' => {
-                    self.source.next();
-                    let token = self
-                        .source
-                        .next_if(|c| *c == '=')
-                        .map_or(Token::Bang, |_| Token::BangEqual);
-                    self.local_token(token)
-                }
-                '=' => {
-                    self.source.next();
-                    let token = self
-                        .source
-                        .next_if(|c| *c == '=')
-                        .map_or(Token::Equal, |_| Token::EqualEqual);
-                    self.local_token(token)
-                }
-                '>' => {
-                    self.source.next();
-                    let token = self
-                        .source
-                        .next_if(|c| *c == '=')
-                        .map_or(Token::Greater, |_| Token::GreaterEqual);
-                    self.local_token(token)
-                }
-                '<' => {
-                    self.source.next();
-                    let token = self
-                        .source
-                        .next_if(|c| *c == '=')
-                        .map_or(Token::Less, |_| Token::LessEqual);
-                    self.local_token(token)
-                }
-                '"' => {
-                    self.source.next();
-                    let str = self
-                        .source
+            if self.source.next_if(|&c| c == '(').is_some() {
+                self.local_token(Token::LeftParen)
+            } else if self.source.next_if(|&c| c == ')').is_some() {
+                self.local_token(Token::RightParen)
+            } else if self.source.next_if(|&c| c == '{').is_some() {
+                self.local_token(Token::LeftBrace)
+            } else if self.source.next_if(|&c| c == '}').is_some() {
+                self.local_token(Token::RightBrace)
+            } else if self.source.next_if(|&c| c == ',').is_some() {
+                self.local_token(Token::Comma)
+            } else if self.source.next_if(|&c| c == '.').is_some() {
+                self.local_token(Token::Dot)
+            } else if self.source.next_if(|&c| c == '-').is_some() {
+                self.local_token(Token::Minus)
+            } else if self.source.next_if(|&c| c == '+').is_some() {
+                self.local_token(Token::Plus)
+            } else if self.source.next_if(|&c| c == ';').is_some() {
+                self.local_token(Token::Semicolon)
+            } else if self.source.next_if(|&c| c == '*').is_some() {
+                self.local_token(Token::Star)
+            } else if self.source.next_if(|&c| c == '/').is_some() {
+                if self.source.next_if(|&c| c == '/').is_some() {
+                    self.source
                         .by_ref()
-                        .peeking_take_string_while(|c| *c != '"');
-                    // TODO: move collect inside if-let
-                    if let Some('"') = self.source.next() {
-                        self.local_token(Token::String(str))
-                    } else {
-                        Err(Located::at_eof(SyntaxError::UnclosedString))
-                    }
-                }
-                c if c.is_numeric() => {
-                    let mut number = self.integer();
-                    let mut cloned = self.source.clone();
-                    if let (Some('.'), Some(c)) = (cloned.next(), cloned.next()) {
-                        if c.is_numeric() {
-                            number.push('.');
-                            // remove '.'
-                            self.source.next();
-                            number.push_str(&self.integer());
-                        }
-                    }
-                    self.local_token(Token::Number(number.parse().unwrap()))
-                }
-                c if c.is_alphabetic() || *c == '_' => {
-                    let identifier: String = self
-                        .source
-                        .peeking_take_string_while(|c| c.is_alphanumeric() || *c == '_');
-                    self.local_token(Token::identifier(&identifier))
-                }
-                c if c.is_whitespace() => {
-                    self.source.next();
+                        .take_while(|c| *c != '\n')
+                        .for_each(drop);
                     self.next()?
+                } else {
+                    self.local_token(Token::Slash)
                 }
-                c => {
-                    let c = *c;
-                    self.source.next();
-                    self.local_err(SyntaxError::StrayCharacter(c))
+            } else if self.source.next_if(|&c| c == '!').is_some() {
+                let token = self
+                    .source
+                    .next_if(|c| *c == '=')
+                    .map_or(Token::Bang, |_| Token::BangEqual);
+                self.local_token(token)
+            } else if self.source.next_if(|&c| c == '=').is_some() {
+                let token = self
+                    .source
+                    .next_if(|c| *c == '=')
+                    .map_or(Token::Equal, |_| Token::EqualEqual);
+                self.local_token(token)
+            } else if self.source.next_if(|&c| c == '>').is_some() {
+                let token = self
+                    .source
+                    .next_if(|c| *c == '=')
+                    .map_or(Token::Greater, |_| Token::GreaterEqual);
+                self.local_token(token)
+            } else if self.source.next_if(|&c| c == '<').is_some() {
+                let token = self
+                    .source
+                    .next_if(|c| *c == '=')
+                    .map_or(Token::Less, |_| Token::LessEqual);
+                self.local_token(token)
+            } else if self.source.next_if(|&c| c == '"').is_some() {
+                let s = self
+                    .source
+                    .by_ref()
+                    .peeking_take_string_while(|c| *c != '"');
+                // TODO: move collect inside if-let
+                if let Some('"') = self.source.next() {
+                    self.local_token(Token::String(s))
+                } else {
+                    Err(Located::at_eof(SyntaxError::UnclosedString))
                 }
+            } else if self.source.peek().is_some_and(|c| c.is_numeric()) {
+                let mut number = self.integer();
+                let mut cloned = self.source.clone();
+                if cloned.next_if(|&c| c == '.').is_some() {
+                    if cloned.next_if(|c| c.is_numeric()).is_some() {
+                        self.source.next();
+                        number.push('.');
+                        number.push_str(&self.integer());
+                    }
+                }
+                if let (Some('.'), Some(c)) = (cloned.next(), cloned.next()) {
+                    if c.is_numeric() {
+                        number.push('.');
+                        // remove '.'
+                        self.source.next();
+                        number.push_str(&self.integer());
+                    }
+                }
+                self.local_token(Token::Number(number.parse().unwrap()))
+            } else if self.source.peek().is_some_and(|c| c.is_alphabetic()) {
+                let identifier: String = self
+                    .source
+                    .peeking_take_string_while(|c| c.is_alphanumeric() || *c == '_');
+                self.local_token(Token::identifier(&identifier))
+            } else if self.source.next_if(|c| c.is_whitespace()).is_some() {
+                self.next()?
+            } else {
+                let c = self.source.next()?;
+                self.local_err(SyntaxError::StrayCharacter(c))
             }
         })
     }
