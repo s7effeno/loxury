@@ -1,3 +1,10 @@
+<<<<<<< HEAD:tree-walk/src/interpret/mod.rs
+=======
+use crate::error::Runtime as RuntimeError;
+use crate::lex::Token;
+use crate::parse::{Expr, Function, Literal, Stmt};
+use crate::{Either, Located};
+>>>>>>> 1b91b02 (import refactoring):src/interpret/mod.rs
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
@@ -377,9 +384,15 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
+<<<<<<< HEAD:tree-walk/src/interpret/mod.rs
             Expr::Variable(name) => self
                 .lookup_variable(name.value(), expr)
                 .map_err(|_| name.co_locate(RuntimeError::UndefinedVariable(name.value().into()))),
+=======
+            Expr::Variable(name) => self.lookup_variable(name.value(), expr).map_err(|_| {
+                name.co_locate(RuntimeError::UndefinedVariable(name.value().to_owned()))
+            }),
+>>>>>>> 1b91b02 (import refactoring):src/interpret/mod.rs
             Expr::Assign(name, value) => {
                 let value = self.evaluate(value)?;
                 let distance = self.locals.get(&(expr as *const Expr));
@@ -573,8 +586,13 @@ impl Interpreter {
     fn lookup_variable(&self, name: &str, expr: &Expr) -> Result<Object, ()> {
         let distance = self.locals.get(&(expr as *const Expr));
         match distance {
+<<<<<<< HEAD:tree-walk/src/interpret/mod.rs
             Some(d) => Ok(self.environment.get_at(*d, name)),
             None => self.globals.get(name),
+=======
+            Some(d) => Ok(self.environment.get_at(*d, &name)),
+            None => self.globals.get(&name),
+>>>>>>> 1b91b02 (import refactoring):src/interpret/mod.rs
         }
     }
 

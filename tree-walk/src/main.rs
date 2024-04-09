@@ -1,4 +1,8 @@
+<<<<<<< HEAD:tree-walk/src/main.rs
 use tree_walk::{Interpreter, Lexer, Parser, Resolver};
+=======
+use loxury::{Interpreter, Lexer, Parser, Resolver};
+>>>>>>> 1b91b02 (import refactoring):src/main.rs
 use std::io::{self, Write};
 use std::{env, fs, process};
 

@@ -1,4 +1,5 @@
-#![feature(test)]
+use std::error::Error;
+use std::fmt::{self, Debug, Display, Formatter};
 mod lex;
 pub use lex::Lexer;
 mod parse;
@@ -7,8 +8,6 @@ mod resolver;
 pub use resolver::Resolver;
 mod interpret;
 pub use interpret::Interpreter;
-use std::error::Error;
-use std::fmt::{self, Debug, Display, Formatter};
 
 enum Either<A, B> {
     A(A),
