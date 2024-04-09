@@ -1,5 +1,3 @@
-// TODO: implement better way to handle Identifiers
-//       improve next_token_if_or_err
 use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
 use crate::Located;
@@ -61,20 +59,38 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn next_token_if_or_err(
+    fn next_token_if_map_or_err<T>(
         &mut self,
-        func: impl FnOnce(&Token) -> bool,
-    ) -> Result<Located<Token>, Located<()>> {
+        func: impl FnOnce(&Located<Token>) -> Result<T, ()>,
+    ) -> Result<T, Located<()>> {
         let token = self
             .peek_token()
             .ok_or(())
             .map_err(|_| Located::at_eof(()))?;
-        if func(token.value()) {
-            self.tokens.next();
-            Ok(token)
-        } else {
-            Err(token.co_locate(()))
+        match func(&token) {
+            Ok(ret) => {
+                self.tokens.next();
+                Ok(ret)
+            }
+            Err(_) => Err(token.co_locate(())),
         }
+    }
+
+    fn next_token_if_or_err(
+        &mut self,
+        func: impl FnOnce(&Token) -> bool,
+    ) -> Result<Located<Token>, Located<()>> {
+        self.next_token_if_map_or_err(|t| func(t.value()).then_some(t.clone()).ok_or(()))
+    }
+
+    fn next_identifier_or_err(&mut self) -> Result<Located<String>, Located<()>> {
+        self.next_token_if_map_or_err(|t| {
+            if let Token::Identifier(i) = t.value() {
+                Ok(t.co_locate(i.into()))
+            } else {
+                Err(())
+            }
+        })
     }
 
     fn declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -90,22 +106,13 @@ impl<'a> Parser<'a> {
     }
 
     fn class_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let t = self
-            .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+        let name = self.next_identifier_or_err()
             .map_err(|e| e.co_locate(SyntaxError::ExpectedClassName))?;
-        let Token::Identifier(name) = t.value() else {
-            unreachable!()
-        };
-        let name = t.co_locate(name.to_owned());
 
         let superclass = if self.next_token_if(|t| matches!(t, Token::Less)).is_some() {
-            let t = self
-                .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+            let superclass = self.next_identifier_or_err()
                 .map_err(|e| e.co_locate(SyntaxError::ExpectedSuperClassName))?;
-            let Token::Identifier(superclass) = t.value() else {
-                unreachable!()
-            };
-            Some(Expr::Variable(t.co_locate(superclass.into())))
+            Some(Expr::Variable(superclass))
         } else {
             None
         };
@@ -128,12 +135,8 @@ impl<'a> Parser<'a> {
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let t = self
-            .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+        let identifier = self.next_identifier_or_err()
             .map_err(|e| e.co_locate(SyntaxError::ExpectedVariableName))?;
-        let Token::Identifier(identifier) = t.value() else {
-            unreachable!()
-        };
 
         let initializer = if self.next_token_if(|t| matches!(t, Token::Equal)).is_some() {
             Some(self.expression()?)
@@ -144,7 +147,7 @@ impl<'a> Parser<'a> {
         self.next_token_if_or_err(|t| matches!(t, Token::Semicolon))
             .map_err(|e| e.co_locate(SyntaxError::UnclosedStatement))?;
 
-        Ok(Stmt::Var(t.co_locate(identifier.to_owned()), initializer))
+        Ok(Stmt::Var(identifier, initializer))
     }
 
     fn statement(&mut self) -> Result<Stmt, Located<SyntaxError>> {
@@ -298,13 +301,8 @@ impl<'a> Parser<'a> {
     }
 
     fn function(&mut self) -> Result<Rc<Function>, Located<SyntaxError>> {
-        let t = self
-            .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+        let name = self.next_identifier_or_err()
             .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionName))?;
-        let Token::Identifier(name) = t.value() else {
-            unreachable!()
-        };
-        let name = t.co_locate(name.to_owned());
 
         self.next_token_if_or_err(|t| matches!(t, Token::LeftParen))
             .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionLeftParen))?;
@@ -316,13 +314,9 @@ impl<'a> Parser<'a> {
             .is_some_and(|t| !matches!(t.value(), Token::RightParen))
         {
             loop {
-                let t = self
-                    .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+                let name = self.next_identifier_or_err()
                     .map_err(|e| e.co_locate(SyntaxError::ExpectedParameterName))?;
-                let Token::Identifier(name) = t.value() else {
-                    unreachable!()
-                };
-                params.push(t.co_locate(name.to_owned()));
+                params.push(name);
                 if self.next_token_if(|t| matches!(t, Token::Comma)).is_none() {
                     break;
                 }
@@ -502,13 +496,9 @@ impl<'a> Parser<'a> {
             {
                 expr = self.finish_call(expr)?;
             } else if self.next_token_if(|t| matches!(t, Token::Dot)).is_some() {
-                let t = self
-                    .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+                let name = self.next_identifier_or_err()
                     .map_err(|e| e.co_locate(SyntaxError::ExpectedPropertyName))?;
-                let Token::Identifier(name) = t.value() else {
-                    unreachable!()
-                };
-                expr = Expr::Get(expr.into(), t.co_locate(name.into()))
+                expr = Expr::Get(expr.into(), name)
             } else {
                 break;
             }
@@ -530,13 +520,8 @@ impl<'a> Parser<'a> {
             let loc = t.co_locate(());
             self.next_token_if_or_err(|t| matches!(t, Token::Dot))
                 .map_err(|e| e.co_locate(SyntaxError::ExpectedSuperClassName))?;
-            let t = self
-                .next_token_if_or_err(|t| matches!(t, Token::Identifier(_)))
+            let method = self.next_identifier_or_err()
                 .map_err(|e| e.co_locate(SyntaxError::IncompleteSuper))?;
-            let Token::Identifier(method) = t.value() else {
-                unreachable!()
-            };
-            let method = t.co_locate(method.into());
             Ok(Expr::Super(loc, method))
         } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Number(_))) {
             let Token::Number(n) = t.value() else {
