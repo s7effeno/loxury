@@ -1,16 +1,15 @@
 // TODO: implement better way to handle Identifiers
 //       improve next_token_if_or_err
-use std::iter::Peekable;
-use std::rc::Rc;
-
 use crate::error::Syntax as SyntaxError;
 use crate::lex::{Lexer, Token};
 use crate::Located;
-pub use expr::{Expr, Literal};
-pub use stmt::{Function, Stmt};
+use std::iter::Peekable;
+use std::rc::Rc;
 
 mod expr;
+pub use expr::{Expr, Literal};
 mod stmt;
+pub use stmt::{Function, Stmt};
 
 pub struct Parser<'a> {
     tokens: Peekable<Lexer<'a>>,

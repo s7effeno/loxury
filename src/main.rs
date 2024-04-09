@@ -1,9 +1,6 @@
 use loxury::{Interpreter, Lexer, Parser, Resolver};
-use std::{
-    env, fs,
-    io::{self, Write},
-    process,
-};
+use std::io::{self, Write};
+use std::{env, fs, process};
 
 fn main() {
     let mut args = env::args();

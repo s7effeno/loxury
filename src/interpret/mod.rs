@@ -1,14 +1,14 @@
-use crate::error::Runtime as RuntimeError;
-use crate::lex::Token;
-use crate::parse::{Function, Expr, Literal, Stmt};
-use crate::{Either, Located};
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::mem;
 use std::rc::Rc;
 use std::time::UNIX_EPOCH;
+
+use crate::error::Runtime as RuntimeError;
+use crate::lex::Token;
+use crate::parse::{Expr, Function, Literal, Stmt};
+use crate::{Either, Located};
 
 mod environment;
 use environment::Environment;
@@ -377,11 +377,9 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Expr::Variable(name) => {
-                self.lookup_variable(name.value(), expr).map_err(|_| {
-                    name.co_locate(RuntimeError::UndefinedVariable(name.value().into()))
-                })
-            }
+            Expr::Variable(name) => self
+                .lookup_variable(name.value(), expr)
+                .map_err(|_| name.co_locate(RuntimeError::UndefinedVariable(name.value().into()))),
             Expr::Assign(name, value) => {
                 let value = self.evaluate(value)?;
                 let distance = self.locals.get(&(expr as *const Expr));
@@ -403,7 +401,7 @@ impl Interpreter {
                         return Ok(left);
                     }
                 } else if !Self::is_truthy(&left) {
-                        return Ok(left);
+                    return Ok(left);
                 }
 
                 self.evaluate(r)
@@ -494,10 +492,10 @@ impl Interpreter {
                 if Self::is_truthy(&self.evaluate(cond)?) {
                     self.execute(branch_then)
                 } else if let Some(branch_else) = branch_else {
-                        self.execute(branch_else)?;
-                        Ok(())
+                    self.execute(branch_else)?;
+                    Ok(())
                 } else {
-                        Ok(())
+                    Ok(())
                 }
             }
             Stmt::While(cond, body) => {
@@ -546,7 +544,7 @@ impl Interpreter {
                     .map(|m| {
                         (
                             m.name.value().into(),
-                            LoxFunction::new(m.clone(), &self.environment, name.value() == "init")
+                            LoxFunction::new(m.clone(), &self.environment, name.value() == "init"),
                         )
                     })
                     .collect();
@@ -575,12 +573,8 @@ impl Interpreter {
     fn lookup_variable(&self, name: &str, expr: &Expr) -> Result<Object, ()> {
         let distance = self.locals.get(&(expr as *const Expr));
         match distance {
-            Some(d) => {
-                Ok(self.environment.get_at(*d, name))
-            },
-            None => {
-                self.globals.get(name)
-            }
+            Some(d) => Ok(self.environment.get_at(*d, name)),
+            None => self.globals.get(name),
         }
     }
 

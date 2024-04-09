@@ -1,8 +1,9 @@
+use crate::error::Syntax as SyntaxError;
 use crate::Located;
-use std::{iter::Peekable, str::Chars};
+use std::iter::Peekable;
+use std::str::Chars;
 
 mod token;
-use crate::error::Syntax as SyntaxError;
 pub use token::Token;
 
 #[derive(Clone)]
