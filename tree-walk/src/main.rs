@@ -1,4 +1,4 @@
-use loxury::{Interpreter, Lexer, Parser, Resolver};
+use tree_walk::{Interpreter, Lexer, Parser, Resolver};
 use std::io::{self, Write};
 use std::{env, fs, process};
 
