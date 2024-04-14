@@ -39,27 +39,3 @@ pub enum Token<'a> {
     Number(f64),
     Identifier(&'a str),
 }
-
-/*impl<'a> Token<'a> {
-    pub fn identifier(s: &str) -> Self {
-        match s {
-            "and" => Self::And,
-            "class" => Self::Class,
-            "else" => Self::Else,
-            "false" => Self::False,
-            "for" => Self::For,
-            "fun" => Self::Fun,
-            "if" => Self::If,
-            "nil" => Self::Nil,
-            "or" => Self::Or,
-            "print" => Self::Print,
-            "return" => Self::Return,
-            "super" => Self::Super,
-            "this" => Self::This,
-            "true" => Self::True,
-            "var" => Self::Var,
-            "while" => Self::While,
-            _ => Self::Identifier(s.into()),
-        }
-    }
-}*/

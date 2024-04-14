@@ -48,7 +48,6 @@ impl<'a> Text<'a> {
     {
         let mut end = 0;
         while let Some(c) = self.next_if(&accept) {
-            println!("LKJSFDLJKSD {c}");
             end += c.len_utf8();
         }
         end
@@ -59,8 +58,7 @@ impl<'a> Text<'a> {
         Self: Sized,
         F: Fn(char) -> bool,
     {
-        println!("YOOO: {}", self.text.as_str());
-        &self.text.as_str()[..=self.advance_while(accept)]
+        &self.text.as_str()[..self.advance_while(accept)]
     }
 }
 
@@ -196,8 +194,51 @@ impl<'a> Lexer<'a> {
                 }
                 self.local_token(Token::Number(start[..len].parse().unwrap()))
             } else if self.source.peek().is_some_and(|c| c.is_alphabetic()) {
-                todo!()
+                let identifier = self.source.take_str_while(|c| c.is_alphabetic());
+
+                fn map_identifier(identifier: &str) -> Token {
+                    let mut iter = identifier.bytes();
+                    let (rest, token) = match iter.next().unwrap() {
+                        b'a' => ("nd", Token::And),
+                        b'c' => ("lass", Token::Class),
+                        b'e' => ("lse", Token::Else),
+                        b'i' => ("f", Token::If),
+                        b'n' => ("il", Token::Nil),
+                        b'o' => ("r", Token::Or),
+                        b'p' => ("rint", Token::Print),
+                        b'r' => ("eturn", Token::Return),
+                        b's' => ("uper", Token::Super),
+                        b'v' => ("ar", Token::Var),
+                        b'w' => ("hile", Token::While),
+                        b'f' => {
+                            match iter.next() {
+                                Some(b'a') => ("lse", Token::False),
+                                Some(b'o') => ("r", Token::For),
+                                Some(b'u') => ("n", Token::Fun),
+                                _ => return Token::Identifier(identifier),
+                            }
+                        }
+                        b't' => {
+                            match iter.next() {
+                                Some(b'h') => ("is", Token::This),
+                                Some(b'r') => ("ue", Token::True),
+                                _ => return Token::Identifier(identifier),                            }
+                        }
+                        _ => return Token::Identifier(identifier),
+                    };
+                    
+                    if iter.eq(rest.bytes()) {
+                        token
+                    } else {
+                        Token::Identifier(identifier)
+                    }
+                }
+
+                self.local_token(map_identifier(identifier))
             } else if self.source.next_if(|c| c.is_whitespace()).is_some() {
+                while self.source.next_if(|c| c.is_whitespace()).is_some() {
+                    self.source.next();
+                }
                 self.next()?
             } else {
                 let c = self.source.next()?;
@@ -210,6 +251,14 @@ impl<'a> Lexer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn all() {
+        let mut l = Lexer::new("( ) { } , . - + ; / * ! != = == > >= < <= and class else false fun for if nil or print return super this true var while \"a\" 12.34 forage fori classe");
+        while let Some(t) = l.next() {
+            println!("{:?}", t);
+            drop(t);
+        }
+    }
 
     #[test]
     fn left_paren() {
