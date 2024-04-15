@@ -100,10 +100,6 @@ impl<'a> Lexer<'a> {
         Located::at_coords(self.row, self.col, data)
     }
 
-    fn integer(&mut self) -> &str {
-        todo!()
-    }
-
     fn local_token(
         &'a self,
         token: Token<'a>,
@@ -115,7 +111,7 @@ impl<'a> Lexer<'a> {
         Err(self.located(err))
     }
 
-    fn next(&'a mut self) -> Option<Result<Located<Token<'a>>, Located<CompileError>>> {
+    fn next<'b>(&'b mut self) -> Option<Result<Located<Token<'b>>, Located<CompileError>>> {
         Some({
             self.row = self.source.row();
             self.col = self.source.col();
@@ -176,7 +172,7 @@ impl<'a> Lexer<'a> {
                 self.local_token(token)
             } else if self.source.next_if(|c| c == '"').is_some() {
                 let s = self.source.take_str_while(|c| c != '"');
-                if let Some('"') = self.source.next() {
+                if self.source.next().is_some() {
                     self.local_token(Token::String(s))
                 } else {
                     Err(Located::at_eof(CompileError::UnclosedString))
@@ -250,16 +246,6 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    #[test]
-    fn all() {
-        let mut l = Lexer::new("( ) { } , . - + ; / * ! != = == > >= < <= and class else false fun for if nil or print return super this true var while \"a\" 12.34 forage fori classe");
-        while let Some(t) = l.next() {
-            println!("{:?}", t);
-            drop(t);
-        }
-    }
-
     #[test]
     fn left_paren() {
         assert!(matches!(
