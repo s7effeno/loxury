@@ -116,129 +116,166 @@ impl<'a> Lexer<'a> {
             self.row = self.source.row();
             self.col = self.source.col();
 
-            if self.source.next_if(|c| c == '(').is_some() {
-                self.local_token(Token::LeftParen)
-            } else if self.source.next_if(|c| c == ')').is_some() {
-                self.local_token(Token::RightParen)
-            } else if self.source.next_if(|c| c == '{').is_some() {
-                self.local_token(Token::LeftBrace)
-            } else if self.source.next_if(|c| c == '}').is_some() {
-                self.local_token(Token::RightBrace)
-            } else if self.source.next_if(|c| c == ',').is_some() {
-                self.local_token(Token::Comma)
-            } else if self.source.next_if(|c| c == '.').is_some() {
-                self.local_token(Token::Dot)
-            } else if self.source.next_if(|c| c == '-').is_some() {
-                self.local_token(Token::Minus)
-            } else if self.source.next_if(|c| c == '+').is_some() {
-                self.local_token(Token::Plus)
-            } else if self.source.next_if(|c| c == ';').is_some() {
-                self.local_token(Token::Semicolon)
-            } else if self.source.next_if(|c| c == '*').is_some() {
-                self.local_token(Token::Star)
-            } else if self.source.next_if(|c| c == '/').is_some() {
-                if self.source.next_if(|c| c == '/').is_some() {
-                    self.source
-                        .by_ref()
-                        .take_while(|c| *c != '\n')
-                        .for_each(drop);
-                    self.next()?
-                } else {
-                    self.local_token(Token::Slash)
-                }
-            } else if self.source.next_if(|c| c == '!').is_some() {
-                let token = self
-                    .source
-                    .next_if(|c| c == '=')
-                    .map_or(Token::Bang, |_| Token::BangEqual);
-                self.local_token(token)
-            } else if self.source.next_if(|c| c == '=').is_some() {
-                let token = self
-                    .source
-                    .next_if(|c| c == '=')
-                    .map_or(Token::Equal, |_| Token::EqualEqual);
-                self.local_token(token)
-            } else if self.source.next_if(|c| c == '>').is_some() {
-                let token = self
-                    .source
-                    .next_if(|c| c == '=')
-                    .map_or(Token::Greater, |_| Token::GreaterEqual);
-                self.local_token(token)
-            } else if self.source.next_if(|c| c == '<').is_some() {
-                let token = self
-                    .source
-                    .next_if(|c| c == '=')
-                    .map_or(Token::Less, |_| Token::LessEqual);
-                self.local_token(token)
-            } else if self.source.next_if(|c| c == '"').is_some() {
-                let s = self.source.take_str_while(|c| c != '"');
-                if self.source.next().is_some() {
-                    self.local_token(Token::String(s))
-                } else {
-                    Err(Located::at_eof(CompileError::UnclosedString))
-                }
-            } else if self.source.peek().is_some_and(|c| c.is_numeric()) {
-                let start = self.source.text.as_str();
-                let mut len = self.source.advance_while(|c| c.is_numeric());
-                let mut cloned = self.source.text.clone();
-                if cloned.next().is_some_and(|c| c == '.')
-                    && cloned.next().is_some_and(|c| c.is_numeric())
-                {
-                    // remove '.'
+            match self.source.peek()? {
+                '(' => {
                     self.source.next();
-                    len += 1 + self.source.advance_while(|c| c.is_numeric());
+                    self.local_token(Token::LeftParen)
                 }
-                self.local_token(Token::Number(start[..len].parse().unwrap()))
-            } else if self.source.peek().is_some_and(|c| c.is_alphabetic()) {
-                let identifier = self.source.take_str_while(|c| c.is_alphabetic());
-
-                fn map_identifier(identifier: &str) -> Token {
-                    let mut iter = identifier.bytes();
-                    let (rest, token) = match iter.next().unwrap() {
-                        b'a' => ("nd", Token::And),
-                        b'c' => ("lass", Token::Class),
-                        b'e' => ("lse", Token::Else),
-                        b'i' => ("f", Token::If),
-                        b'n' => ("il", Token::Nil),
-                        b'o' => ("r", Token::Or),
-                        b'p' => ("rint", Token::Print),
-                        b'r' => ("eturn", Token::Return),
-                        b's' => ("uper", Token::Super),
-                        b'v' => ("ar", Token::Var),
-                        b'w' => ("hile", Token::While),
-                        b'f' => {
-                            match iter.next() {
-                                Some(b'a') => ("lse", Token::False),
-                                Some(b'o') => ("r", Token::For),
-                                Some(b'u') => ("n", Token::Fun),
-                                _ => return Token::Identifier(identifier),
-                            }
-                        }
-                        b't' => {
-                            match iter.next() {
-                                Some(b'h') => ("is", Token::This),
-                                Some(b'r') => ("ue", Token::True),
-                                _ => return Token::Identifier(identifier),                            }
-                        }
-                        _ => return Token::Identifier(identifier),
-                    };
-                    
-                    if iter.eq(rest.bytes()) {
-                        token
+                ')' => {
+                    self.source.next();
+                    self.local_token(Token::RightParen)
+                }
+                '{' => {
+                    self.source.next();
+                    self.local_token(Token::LeftBrace)
+                }
+                '}' => {
+                    self.source.next();
+                    self.local_token(Token::RightBrace)
+                }
+                ',' => {
+                    self.source.next();
+                    self.local_token(Token::Comma)
+                }
+                '.' => {
+                    self.source.next();
+                    self.local_token(Token::Dot)
+                }
+                '-' => {
+                    self.source.next();
+                    self.local_token(Token::Minus)
+                }
+                '+' => {
+                    self.source.next();
+                    self.local_token(Token::Plus)
+                }
+                ';' => {
+                    self.source.next();
+                    self.local_token(Token::Semicolon)
+                }
+                '*' => {
+                    self.source.next();
+                    self.local_token(Token::Star)
+                }
+                '/' => {
+                    self.source.next();
+                    if self.source.next_if(|c| c == '/').is_some() {
+                        self.source
+                            .by_ref()
+                            .take_while(|c| *c != '\n')
+                            .for_each(drop);
+                        self.next()?
                     } else {
-                        Token::Identifier(identifier)
+                        self.local_token(Token::Slash)
                     }
                 }
-
-                self.local_token(map_identifier(identifier))
-            } else if self.source.next_if(|c| c.is_whitespace()).is_some() {
-                while self.source.next_if(|c| c.is_whitespace()).is_some() {
+                '!' => {
                     self.source.next();
+                    let token = self
+                        .source
+                        .next_if(|c| c == '=')
+                        .map_or(Token::Bang, |_| Token::BangEqual);
+                    self.local_token(token)
                 }
-                self.next()?
-            } else {
-                let c = self.source.next()?;
-                self.local_err(CompileError::StrayChar(c))
+                '=' => {
+                    self.source.next();
+                    let token = self
+                        .source
+                        .next_if(|c| c == '=')
+                        .map_or(Token::Equal, |_| Token::EqualEqual);
+                    self.local_token(token)
+                }
+                '>' => {
+                    self.source.next();
+                    let token = self
+                        .source
+                        .next_if(|c| c == '=')
+                        .map_or(Token::Greater, |_| Token::GreaterEqual);
+                    self.local_token(token)
+                }
+                '<' => {
+                    self.source.next();
+                    let token = self
+                        .source
+                        .next_if(|c| c == '=')
+                        .map_or(Token::Less, |_| Token::LessEqual);
+                    self.local_token(token)
+                }
+                '"' => {
+                    self.source.next();
+                    let s = self.source.take_str_while(|c| c != '"');
+                    if self.source.next().is_some() {
+                        self.local_token(Token::String(s))
+                    } else {
+                        Err(Located::at_eof(CompileError::UnclosedString))
+                    }
+                }
+                c if c.is_numeric() => {
+                    let start = self.source.text.as_str();
+                    let mut len = self.source.advance_while(|c| c.is_numeric());
+                    let mut cloned = self.source.text.clone();
+                    if cloned.next().is_some_and(|c| c == '.')
+                        && cloned.next().is_some_and(|c| c.is_numeric())
+                    {
+                        // remove '.'
+                        self.source.next();
+                        len += 1 + self.source.advance_while(|c| c.is_numeric());
+                    }
+                    self.local_token(Token::Number(start[..len].parse().unwrap()))
+                }
+                c if c.is_alphabetic() => {
+                    let identifier = self.source.take_str_while(|c| c.is_alphabetic());
+
+                    fn map_identifier(identifier: &str) -> Token {
+                        let mut iter = identifier.bytes();
+                        let (rest, token) = match iter.next().unwrap() {
+                            b'a' => ("nd", Token::And),
+                            b'c' => ("lass", Token::Class),
+                            b'e' => ("lse", Token::Else),
+                            b'i' => ("f", Token::If),
+                            b'n' => ("il", Token::Nil),
+                            b'o' => ("r", Token::Or),
+                            b'p' => ("rint", Token::Print),
+                            b'r' => ("eturn", Token::Return),
+                            b's' => ("uper", Token::Super),
+                            b'v' => ("ar", Token::Var),
+                            b'w' => ("hile", Token::While),
+                            b'f' => {
+                                match iter.next() {
+                                    Some(b'a') => ("lse", Token::False),
+                                    Some(b'o') => ("r", Token::For),
+                                    Some(b'u') => ("n", Token::Fun),
+                                    _ => return Token::Identifier(identifier),
+                                }
+                            }
+                            b't' => {
+                                match iter.next() {
+                                    Some(b'h') => ("is", Token::This),
+                                    Some(b'r') => ("ue", Token::True),
+                                    _ => return Token::Identifier(identifier),                            }
+                            }
+                            _ => return Token::Identifier(identifier),
+                        };
+                        
+                        if iter.eq(rest.bytes()) {
+                            token
+                        } else {
+                            Token::Identifier(identifier)
+                        }
+                    }
+
+                    self.local_token(map_identifier(identifier))
+                }
+                c if c.is_whitespace() => {
+                    while self.source.next_if(|c| c.is_whitespace()).is_some() {
+                        self.source.next();
+                    }
+                    self.next()?
+                }
+                c => {
+                    self.source.next();
+                    self.local_err(CompileError::StrayChar(c))
+                }
             }
         })
     }
@@ -246,6 +283,21 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn big_program() {
+        use std::time::Instant;
+        let source = include_str!("input");
+        let mut lexer = Lexer::new(source);
+        let before = Instant::now();
+        while let Some(a) = lexer.next() {
+            drop(a);
+        }
+        let elapsed = before.elapsed();
+        println!("{:?}", elapsed.as_millis());
+    }
+
     #[test]
     fn left_paren() {
         assert!(matches!(
