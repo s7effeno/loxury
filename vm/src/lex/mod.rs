@@ -1,4 +1,3 @@
-// use crate::error::Syntax as SyntaxError;
 use crate::CompileError;
 use crate::Located;
 use std::str::Chars;
@@ -210,23 +209,24 @@ impl<'a> Lexer<'a> {
                         Err(Located::at_eof(CompileError::UnclosedString))
                     }
                 }
-                c if c.is_numeric() => {
+                c if c.is_digit(10) => {
                     let start = self.source.text.as_str();
-                    let mut len = self.source.advance_while(|c| c.is_numeric());
+                    let mut len = self.source.advance_while(|c| c.is_digit(10));
                     let mut cloned = self.source.text.clone();
                     if cloned.next().is_some_and(|c| c == '.')
-                        && cloned.next().is_some_and(|c| c.is_numeric())
+                        && cloned.next().is_some_and(|c| c.is_digit(10))
                     {
                         // remove '.'
                         self.source.next();
-                        len += 1 + self.source.advance_while(|c| c.is_numeric());
+                        len += 1 + self.source.advance_while(|c| c.is_digit(10))
                     }
                     self.local_token(Token::Number(start[..len].parse().unwrap()))
                 }
-                c if c.is_alphabetic() => {
-                    let identifier = self.source.take_str_while(|c| c.is_alphabetic());
+                c if c.is_alphabetic() || c == '_' => {
+                    let identifier = self.source.take_str_while(|c| c.is_alphanumeric() || c == '_');
 
                     fn map_identifier(identifier: &str) -> Token {
+                        let default = || Token::Identifier(identifier);
                         let mut iter = identifier.bytes();
                         let (rest, token) = match iter.next().unwrap() {
                             b'a' => ("nd", Token::And),
@@ -245,22 +245,23 @@ impl<'a> Lexer<'a> {
                                     Some(b'a') => ("lse", Token::False),
                                     Some(b'o') => ("r", Token::For),
                                     Some(b'u') => ("n", Token::Fun),
-                                    _ => return Token::Identifier(identifier),
+                                    _ => return default(),
                                 }
                             }
                             b't' => {
                                 match iter.next() {
                                     Some(b'h') => ("is", Token::This),
                                     Some(b'r') => ("ue", Token::True),
-                                    _ => return Token::Identifier(identifier),                            }
+                                    _ => return default(),
+                                }
                             }
-                            _ => return Token::Identifier(identifier),
+                            _ => return default(),
                         };
                         
                         if iter.eq(rest.bytes()) {
                             token
                         } else {
-                            Token::Identifier(identifier)
+                            default()
                         }
                     }
 

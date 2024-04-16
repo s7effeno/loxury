@@ -186,24 +186,16 @@ impl Iterator for Lexer<'_> {
                 } else {
                     Err(Located::at_eof(SyntaxError::UnclosedString))
                 }
-            } else if self.source.peek().is_some_and(|c| c.is_numeric()) {
+            } else if self.source.peek().is_some_and(|c| matches!(c, '0'..='9')) {
                 let mut number = self.integer();
                 let mut cloned = self.source.clone();
-                if cloned.next_if(|&c| c == '.').and_then(|_| cloned.next_if(|c| c.is_numeric())).is_some() {
+                if cloned.next_if(|&c| c == '.').and_then(|_| cloned.next_if(|c| matches!(c, '0'..='9'))).is_some() {
                     self.source.next();
                     number.push('.');
                     number.push_str(&self.integer());
                 }
-                if let (Some('.'), Some(c)) = (cloned.next(), cloned.next()) {
-                    if c.is_numeric() {
-                        number.push('.');
-                        // remove '.'
-                        self.source.next();
-                        number.push_str(&self.integer());
-                    }
-                }
                 self.local_token(Token::Number(number.parse().unwrap()))
-            } else if self.source.peek().is_some_and(|c| c.is_alphabetic()) {
+            } else if self.source.peek().is_some_and(|c| c.is_alphabetic() || *c == '_') {
                 let identifier: String = self
                     .source
                     .peeking_take_string_while(|c| c.is_alphanumeric() || *c == '_');
@@ -222,6 +214,19 @@ impl Iterator for Lexer<'_> {
 mod tests {
     use super::*;
     use crate::error::Syntax as SyntaxError;
+
+    #[test]
+    fn big_program() {
+        use std::time::Instant;
+        let source = include_str!("input");
+        let mut lexer = Lexer::new(source);
+        let before = Instant::now();
+        while let Some(a) = lexer.next() {
+            drop(a);
+        }
+        let elapsed = before.elapsed();
+        println!("{:?}", elapsed.as_millis());
+    }
 
     #[test]
     fn left_paren() {
