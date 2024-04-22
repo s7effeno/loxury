@@ -1,6 +1,7 @@
 mod chunk;
 mod lex;
 mod vm;
+mod compiler;
 
 #[derive(Clone, Debug)]
 enum Position {
