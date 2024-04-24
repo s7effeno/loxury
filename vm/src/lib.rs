@@ -1,12 +1,24 @@
 mod chunk;
+mod compiler;
 mod lex;
 mod vm;
-mod compiler;
+
+use std::error::Error;
+use std::fmt::{self, Debug, Display, Formatter};
 
 #[derive(Clone, Debug)]
-enum Position {
-    Coords(usize, usize),
+pub enum Position {
+    Coords(u16, u16),
     Eof,
+}
+
+impl Display for Position {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Coords(row, col) => write!(f, "{}:{}", row, col),
+            Self::Eof => write!(f, "eof"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -16,7 +28,7 @@ pub struct Located<T> {
 }
 
 impl<T> Located<T> {
-    pub fn at_coords(row: usize, col: usize, value: T) -> Self {
+    pub fn at_coords(row: u16, col: u16, value: T) -> Self {
         Self {
             pos: Position::Coords(row, col),
             value,
@@ -42,8 +54,36 @@ impl<T> Located<T> {
     }
 }
 
-#[derive(Debug)]
+impl<T: Clone> Clone for Located<T> {
+    fn clone(&self) -> Self {
+        Self {
+            pos: self.pos.clone(),
+            value: self.value.clone(),
+        }
+    }
+}
+
+impl<E: Error> Display for Located<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.pos, self.value)
+    }
+}
+
+impl<E: Error> Error for Located<E> {}
+
+#[derive(Debug, Clone)]
 pub enum CompileError {
     UnclosedString,
     StrayChar(char),
 }
+
+impl Display for CompileError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnclosedString => write!(f, "expected '\"' at the end of string"),
+            Self::StrayChar(c) => write!(f, "stray '{}' in program", c),
+        }
+    }
+}
+
+impl Error for CompileError {}

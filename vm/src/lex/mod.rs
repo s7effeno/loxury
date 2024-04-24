@@ -1,14 +1,13 @@
-use crate::CompileError;
-use crate::Located;
+use crate::{CompileError, Located};
 use std::str::Chars;
 
 mod token;
-pub use token::Token;
+pub use token::{Kind as TokenKind, Token};
 
 #[derive(Clone)]
 struct Text<'a> {
-    row: usize,
-    col: usize,
+    row: u16,
+    col: u16,
     text: Chars<'a>,
 }
 
@@ -21,11 +20,11 @@ impl<'a> Text<'a> {
         }
     }
 
-    fn row(&self) -> usize {
+    fn row(&self) -> u16 {
         self.row
     }
 
-    fn col(&self) -> usize {
+    fn col(&self) -> u16 {
         self.col
     }
 
@@ -81,80 +80,81 @@ impl Iterator for Text<'_> {
 }
 
 pub struct Lexer<'a> {
-    row: usize,
-    col: usize,
     source: Text<'a>,
+    peeked: Option<Option<Result<Located<Token<'a>>, Located<CompileError>>>>,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
         Self {
-            row: 1,
-            col: 1,
             source: Text::new(source),
+            peeked: None,
         }
     }
 
-    fn located<T>(&self, data: T) -> Located<T> {
-        Located::at_coords(self.row, self.col, data)
+    fn peek<'b>(&'b mut self) -> Option<Result<Located<Token<'b>>, Located<CompileError>>> {
+        if let Some(peeked) = &self.peeked {
+            peeked.clone()
+        } else {
+            let next = self.next();
+            self.peeked = Some(next.clone());
+            next
+        }
     }
 
-    fn local_token(
-        &'a self,
-        token: Token<'a>,
-    ) -> Result<Located<Token<'a>>, Located<CompileError>> {
-        Ok(self.located(token))
-    }
-
-    fn local_err(&'a self, err: CompileError) -> Result<Located<Token<'a>>, Located<CompileError>> {
-        Err(self.located(err))
-    }
-
-    fn next<'b>(&'b mut self) -> Option<Result<Located<Token<'b>>, Located<CompileError>>> {
+    fn next<'b>(&'b mut self) -> Option<Result<Located<Token<'a>>, Located<CompileError>>> {
+        if let Some(ret) = self.peeked.take() {
+            return ret;
+        }
         Some({
-            self.row = self.source.row();
-            self.col = self.source.col();
+            let row = self.source.row();
+            let col = self.source.col();
+
+            let local = |t| Located::at_coords(row, col, t);
+            let local_spanned_token = |kind, span| Ok(local(Token::new(kind, span)));
+            let local_token = |kind| local_spanned_token(kind, "");
+            let local_err = |err| Err(Located::at_coords(row, col, err));
 
             match self.source.peek()? {
                 '(' => {
                     self.source.next();
-                    self.local_token(Token::LeftParen)
+                    local_token(TokenKind::LeftParen)
                 }
                 ')' => {
                     self.source.next();
-                    self.local_token(Token::RightParen)
+                    local_token(TokenKind::RightParen)
                 }
                 '{' => {
                     self.source.next();
-                    self.local_token(Token::LeftBrace)
+                    local_token(TokenKind::LeftBrace)
                 }
                 '}' => {
                     self.source.next();
-                    self.local_token(Token::RightBrace)
+                    local_token(TokenKind::RightBrace)
                 }
                 ',' => {
                     self.source.next();
-                    self.local_token(Token::Comma)
+                    local_token(TokenKind::Comma)
                 }
                 '.' => {
                     self.source.next();
-                    self.local_token(Token::Dot)
+                    local_token(TokenKind::Dot)
                 }
                 '-' => {
                     self.source.next();
-                    self.local_token(Token::Minus)
+                    local_token(TokenKind::Minus)
                 }
                 '+' => {
                     self.source.next();
-                    self.local_token(Token::Plus)
+                    local_token(TokenKind::Plus)
                 }
                 ';' => {
                     self.source.next();
-                    self.local_token(Token::Semicolon)
+                    local_token(TokenKind::Semicolon)
                 }
                 '*' => {
                     self.source.next();
-                    self.local_token(Token::Star)
+                    local_token(TokenKind::Star)
                 }
                 '/' => {
                     self.source.next();
@@ -165,7 +165,7 @@ impl<'a> Lexer<'a> {
                             .for_each(drop);
                         self.next()?
                     } else {
-                        self.local_token(Token::Slash)
+                        local_token(TokenKind::Slash)
                     }
                 }
                 '!' => {
@@ -173,38 +173,38 @@ impl<'a> Lexer<'a> {
                     let token = self
                         .source
                         .next_if(|c| c == '=')
-                        .map_or(Token::Bang, |_| Token::BangEqual);
-                    self.local_token(token)
+                        .map_or(TokenKind::Bang, |_| TokenKind::BangEqual);
+                    local_token(token)
                 }
                 '=' => {
                     self.source.next();
                     let token = self
                         .source
                         .next_if(|c| c == '=')
-                        .map_or(Token::Equal, |_| Token::EqualEqual);
-                    self.local_token(token)
+                        .map_or(TokenKind::Equal, |_| TokenKind::EqualEqual);
+                    local_token(token)
                 }
                 '>' => {
                     self.source.next();
                     let token = self
                         .source
                         .next_if(|c| c == '=')
-                        .map_or(Token::Greater, |_| Token::GreaterEqual);
-                    self.local_token(token)
+                        .map_or(TokenKind::Greater, |_| TokenKind::GreaterEqual);
+                    local_token(token)
                 }
                 '<' => {
                     self.source.next();
                     let token = self
                         .source
                         .next_if(|c| c == '=')
-                        .map_or(Token::Less, |_| Token::LessEqual);
-                    self.local_token(token)
+                        .map_or(TokenKind::Less, |_| TokenKind::LessEqual);
+                    local_token(token)
                 }
                 '"' => {
                     self.source.next();
                     let s = self.source.take_str_while(|c| c != '"');
                     if self.source.next().is_some() {
-                        self.local_token(Token::String(s))
+                        local_spanned_token(TokenKind::String, s)
                     } else {
                         Err(Located::at_eof(CompileError::UnclosedString))
                     }
@@ -220,52 +220,51 @@ impl<'a> Lexer<'a> {
                         self.source.next();
                         len += 1 + self.source.advance_while(|c| c.is_digit(10))
                     }
-                    self.local_token(Token::Number(start[..len].parse().unwrap()))
+                    local_spanned_token(TokenKind::Number, &start[..len])
                 }
                 c if c.is_alphabetic() || c == '_' => {
-                    let identifier = self.source.take_str_while(|c| c.is_alphanumeric() || c == '_');
+                    let identifier = self
+                        .source
+                        .take_str_while(|c| c.is_alphanumeric() || c == '_');
 
-                    fn map_identifier(identifier: &str) -> Token {
-                        let default = || Token::Identifier(identifier);
+                    let map_identifier = || {
+                        let default = || local_spanned_token(TokenKind::Identifier, identifier);
+
                         let mut iter = identifier.bytes();
                         let (rest, token) = match iter.next().unwrap() {
-                            b'a' => ("nd", Token::And),
-                            b'c' => ("lass", Token::Class),
-                            b'e' => ("lse", Token::Else),
-                            b'i' => ("f", Token::If),
-                            b'n' => ("il", Token::Nil),
-                            b'o' => ("r", Token::Or),
-                            b'p' => ("rint", Token::Print),
-                            b'r' => ("eturn", Token::Return),
-                            b's' => ("uper", Token::Super),
-                            b'v' => ("ar", Token::Var),
-                            b'w' => ("hile", Token::While),
-                            b'f' => {
-                                match iter.next() {
-                                    Some(b'a') => ("lse", Token::False),
-                                    Some(b'o') => ("r", Token::For),
-                                    Some(b'u') => ("n", Token::Fun),
-                                    _ => return default(),
-                                }
-                            }
-                            b't' => {
-                                match iter.next() {
-                                    Some(b'h') => ("is", Token::This),
-                                    Some(b'r') => ("ue", Token::True),
-                                    _ => return default(),
-                                }
-                            }
+                            b'a' => ("nd", TokenKind::And),
+                            b'c' => ("lass", TokenKind::Class),
+                            b'e' => ("lse", TokenKind::Else),
+                            b'i' => ("f", TokenKind::If),
+                            b'n' => ("il", TokenKind::Nil),
+                            b'o' => ("r", TokenKind::Or),
+                            b'p' => ("rint", TokenKind::Print),
+                            b'r' => ("eturn", TokenKind::Return),
+                            b's' => ("uper", TokenKind::Super),
+                            b'v' => ("ar", TokenKind::Var),
+                            b'w' => ("hile", TokenKind::While),
+                            b'f' => match iter.next() {
+                                Some(b'a') => ("lse", TokenKind::False),
+                                Some(b'o') => ("r", TokenKind::For),
+                                Some(b'u') => ("n", TokenKind::Fun),
+                                _ => return default(),
+                            },
+                            b't' => match iter.next() {
+                                Some(b'h') => ("is", TokenKind::This),
+                                Some(b'r') => ("ue", TokenKind::True),
+                                _ => return default(),
+                            },
                             _ => return default(),
                         };
-                        
+
                         if iter.eq(rest.bytes()) {
-                            token
+                            local_token(token)
                         } else {
                             default()
                         }
-                    }
+                    };
 
-                    self.local_token(map_identifier(identifier))
+                    map_identifier()
                 }
                 c if c.is_whitespace() => {
                     while self.source.next_if(|c| c.is_whitespace()).is_some() {
@@ -275,7 +274,7 @@ impl<'a> Lexer<'a> {
                 }
                 c => {
                     self.source.next();
-                    self.local_err(CompileError::StrayChar(c))
+                    local_err(CompileError::StrayChar(c))
                 }
             }
         })
@@ -286,320 +285,338 @@ impl<'a> Lexer<'a> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn big_program() {
-        use std::time::Instant;
-        let source = include_str!("input");
-        let mut lexer = Lexer::new(source);
-        let before = Instant::now();
-        while let Some(a) = lexer.next() {
-            drop(a);
-        }
-        let elapsed = before.elapsed();
-        println!("{:?}", elapsed.as_millis());
-    }
+    // #[test]
+    // fn big_program() {
+    //     use std::time::Instant;
+    //     let source = include_str!("input");
+    //     let mut lexer = Lexer::new(source);
+    //     let before = Instant::now();
+    //     while let Some(a) = lexer.next() {
+    //         drop(a);
+    //     }
+    //     let elapsed = before.elapsed();
+    //     println!("{:?}", elapsed.as_millis());
+    // }
 
     #[test]
     fn left_paren() {
         assert!(matches!(
-            Lexer::new("(").next().unwrap().unwrap().value(),
-            Token::LeftParen
+            Lexer::new("(").next().unwrap().unwrap().kind(),
+            TokenKind::LeftParen
         ))
     }
 
     #[test]
     fn right_paren() {
         assert!(matches!(
-            Lexer::new(")").next().unwrap().unwrap().value(),
-            Token::RightParen
+            Lexer::new(")").next().unwrap().unwrap().kind(),
+            TokenKind::RightParen
         ))
     }
 
     #[test]
     fn left_brace() {
         assert!(matches!(
-            Lexer::new("{").next().unwrap().unwrap().value(),
-            Token::LeftBrace
+            Lexer::new("{").next().unwrap().unwrap().kind(),
+            TokenKind::LeftBrace
         ))
     }
 
     #[test]
     fn right_brace() {
         assert!(matches!(
-            Lexer::new("}").next().unwrap().unwrap().value(),
-            Token::RightBrace
+            Lexer::new("}").next().unwrap().unwrap().kind(),
+            TokenKind::RightBrace
         ))
     }
 
     #[test]
     fn comma() {
         assert!(matches!(
-            Lexer::new(",").next().unwrap().unwrap().value(),
-            Token::Comma
+            Lexer::new(",").next().unwrap().unwrap().kind(),
+            TokenKind::Comma
         ))
     }
 
     #[test]
     fn dot() {
         assert!(matches!(
-            Lexer::new(".").next().unwrap().unwrap().value(),
-            Token::Dot
+            Lexer::new(".").next().unwrap().unwrap().kind(),
+            TokenKind::Dot
         ))
     }
 
     #[test]
     fn minus() {
         assert!(matches!(
-            Lexer::new("-").next().unwrap().unwrap().value(),
-            Token::Minus
+            Lexer::new("-").next().unwrap().unwrap().kind(),
+            TokenKind::Minus
         ))
     }
 
     #[test]
     fn plus() {
         assert!(matches!(
-            Lexer::new("+").next().unwrap().unwrap().value(),
-            Token::Plus
+            Lexer::new("+").next().unwrap().unwrap().kind(),
+            TokenKind::Plus
         ))
     }
 
     #[test]
     fn semicolon() {
         assert!(matches!(
-            Lexer::new(";").next().unwrap().unwrap().value(),
-            Token::Semicolon
+            Lexer::new(";").next().unwrap().unwrap().kind(),
+            TokenKind::Semicolon
         ))
     }
 
     #[test]
     fn slash() {
         assert!(matches!(
-            Lexer::new("/").next().unwrap().unwrap().value(),
-            Token::Slash
+            Lexer::new("/").next().unwrap().unwrap().kind(),
+            TokenKind::Slash
         ))
     }
 
     #[test]
     fn star() {
         assert!(matches!(
-            Lexer::new("*").next().unwrap().unwrap().value(),
-            Token::Star
+            Lexer::new("*").next().unwrap().unwrap().kind(),
+            TokenKind::Star
         ))
     }
 
     #[test]
     fn bang() {
         assert!(matches!(
-            Lexer::new("!").next().unwrap().unwrap().value(),
-            Token::Bang
+            Lexer::new("!").next().unwrap().unwrap().kind(),
+            TokenKind::Bang
         ))
     }
 
     #[test]
     fn bang_equal() {
         assert!(matches!(
-            Lexer::new("!=").next().unwrap().unwrap().value(),
-            Token::BangEqual
+            Lexer::new("!=").next().unwrap().unwrap().kind(),
+            TokenKind::BangEqual
         ))
     }
 
     #[test]
     fn equal() {
         assert!(matches!(
-            Lexer::new("=").next().unwrap().unwrap().value(),
-            Token::Equal
+            Lexer::new("=").next().unwrap().unwrap().kind(),
+            TokenKind::Equal
         ))
     }
 
     #[test]
     fn equal_equal() {
         assert!(matches!(
-            Lexer::new("==").next().unwrap().unwrap().value(),
-            Token::EqualEqual
+            Lexer::new("==").next().unwrap().unwrap().kind(),
+            TokenKind::EqualEqual
         ))
     }
 
     #[test]
     fn greater() {
         assert!(matches!(
-            Lexer::new(">").next().unwrap().unwrap().value(),
-            Token::Greater
+            Lexer::new(">").next().unwrap().unwrap().kind(),
+            TokenKind::Greater
         ))
     }
 
     #[test]
     fn greater_equal() {
         assert!(matches!(
-            Lexer::new(">=").next().unwrap().unwrap().value(),
-            Token::GreaterEqual
+            Lexer::new(">=").next().unwrap().unwrap().kind(),
+            TokenKind::GreaterEqual
         ))
     }
 
     #[test]
     fn less() {
         assert!(matches!(
-            Lexer::new("<").next().unwrap().unwrap().value(),
-            Token::Less
+            Lexer::new("<").next().unwrap().unwrap().kind(),
+            TokenKind::Less
         ))
     }
 
     #[test]
     fn less_equal() {
         assert!(matches!(
-            Lexer::new("<=").next().unwrap().unwrap().value(),
-            Token::LessEqual
+            Lexer::new("<=").next().unwrap().unwrap().kind(),
+            TokenKind::LessEqual
         ))
     }
 
     #[test]
     fn and() {
         assert!(matches!(
-            Lexer::new("and").next().unwrap().unwrap().value(),
-            Token::And
+            Lexer::new("and").next().unwrap().unwrap().kind(),
+            TokenKind::And
         ))
     }
 
     #[test]
     fn class() {
         assert!(matches!(
-            Lexer::new("class").next().unwrap().unwrap().value(),
-            Token::Class
+            Lexer::new("class").next().unwrap().unwrap().kind(),
+            TokenKind::Class
         ))
     }
 
     #[test]
     fn r#else() {
         assert!(matches!(
-            Lexer::new("else").next().unwrap().unwrap().value(),
-            Token::Else
+            Lexer::new("else").next().unwrap().unwrap().kind(),
+            TokenKind::Else
         ))
     }
 
     #[test]
     fn r#false() {
         assert!(matches!(
-            Lexer::new("false").next().unwrap().unwrap().value(),
-            Token::False
+            Lexer::new("false").next().unwrap().unwrap().kind(),
+            TokenKind::False
         ))
     }
 
     #[test]
     fn fun() {
         assert!(matches!(
-            Lexer::new("fun").next().unwrap().unwrap().value(),
-            Token::Fun
+            Lexer::new("fun").next().unwrap().unwrap().kind(),
+            TokenKind::Fun
         ))
     }
 
     #[test]
     fn r#for() {
         assert!(matches!(
-            Lexer::new("for").next().unwrap().unwrap().value(),
-            Token::For
+            Lexer::new("for").next().unwrap().unwrap().kind(),
+            TokenKind::For
         ))
     }
 
     #[test]
     fn r#if() {
         assert!(matches!(
-            Lexer::new("if").next().unwrap().unwrap().value(),
-            Token::If
+            Lexer::new("if").next().unwrap().unwrap().kind(),
+            TokenKind::If
         ))
     }
 
     #[test]
     fn nil() {
         assert!(matches!(
-            Lexer::new("nil").next().unwrap().unwrap().value(),
-            Token::Nil
+            Lexer::new("nil").next().unwrap().unwrap().kind(),
+            TokenKind::Nil
         ))
     }
 
     #[test]
     fn or() {
         assert!(matches!(
-            Lexer::new("or").next().unwrap().unwrap().value(),
-            Token::Or
+            Lexer::new("or").next().unwrap().unwrap().kind(),
+            TokenKind::Or
         ))
     }
 
     #[test]
     fn print() {
         assert!(matches!(
-            Lexer::new("print").next().unwrap().unwrap().value(),
-            Token::Print
+            Lexer::new("print").next().unwrap().unwrap().kind(),
+            TokenKind::Print
         ))
     }
 
     #[test]
     fn r#return() {
         assert!(matches!(
-            Lexer::new("return").next().unwrap().unwrap().value(),
-            Token::Return
+            Lexer::new("return").next().unwrap().unwrap().kind(),
+            TokenKind::Return
         ))
     }
 
     #[test]
     fn ssuper() {
         assert!(matches!(
-            Lexer::new("super").next().unwrap().unwrap().value(),
-            Token::Super
+            Lexer::new("super").next().unwrap().unwrap().kind(),
+            TokenKind::Super
         ))
     }
 
     #[test]
     fn this() {
         assert!(matches!(
-            Lexer::new("this").next().unwrap().unwrap().value(),
-            Token::This
+            Lexer::new("this").next().unwrap().unwrap().kind(),
+            TokenKind::This
         ))
     }
 
     #[test]
     fn r#true() {
         assert!(matches!(
-            Lexer::new("true").next().unwrap().unwrap().value(),
-            Token::True
+            Lexer::new("true").next().unwrap().unwrap().kind(),
+            TokenKind::True
         ))
     }
 
     #[test]
     fn r#var() {
         assert!(matches!(
-            Lexer::new("var").next().unwrap().unwrap().value(),
-            Token::Var
+            Lexer::new("var").next().unwrap().unwrap().kind(),
+            TokenKind::Var
         ))
     }
 
     #[test]
     fn r#while() {
         assert!(matches!(
-            Lexer::new("while").next().unwrap().unwrap().value(),
-            Token::While
+            Lexer::new("while").next().unwrap().unwrap().kind(),
+            TokenKind::While
         ))
     }
 
     #[test]
     fn string() {
-        if let Token::String(s) = Lexer::new("\"AAAABBBB00001111\"")
-            .next()
-            .unwrap()
-            .unwrap()
-            .value()
-        {
-            assert_eq!(&"AAAABBBB00001111", s);
-        } else {
-            panic!()
-        }
+        let mut lexer = Lexer::new("\"_A0$\"");
+        let token = lexer.next().unwrap().unwrap();
+        assert_eq!(TokenKind::String, token.kind());
+        assert_eq!("_A0$", token.span());
     }
 
     #[test]
-    fn number() {
-        if let Token::Number(n) = Lexer::new("12.34").next().unwrap().unwrap().value() {
-            assert_eq!(12.34, *n);
-        } else {
-            panic!()
-        }
+    fn complete_number() {
+        let mut lexer = Lexer::new("12.34");
+        let token = lexer.next().unwrap().unwrap();
+        assert_eq!(TokenKind::Number, token.kind());
+        assert_eq!("12.34", token.span());
+    }
+
+    #[test]
+    fn integer_number() {
+        let mut lexer = Lexer::new("12");
+        let token = lexer.next().unwrap().unwrap();
+        assert_eq!(TokenKind::Number, token.kind());
+        assert_eq!("12", token.span());
+    }
+
+    #[test]
+    fn dot_number() {
+        let mut lexer = Lexer::new(".12");
+        assert_eq!(TokenKind::Dot, lexer.next().unwrap().unwrap().kind());
+        let token = lexer.next().unwrap().unwrap();
+        assert_eq!(TokenKind::Number, token.kind());
+        assert_eq!("12", token.span());
+    }
+
+    #[test]
+    fn number_dot() {
+        let mut lexer = Lexer::new("12.");
+        let token = lexer.next().unwrap().unwrap();
+        assert_eq!("12", token.span());
+        assert_eq!(TokenKind::Dot, lexer.next().unwrap().unwrap().kind());
     }
 
     #[test]

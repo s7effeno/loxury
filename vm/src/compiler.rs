@@ -1,5 +1,6 @@
-use crate::lex::Lexer;
 use crate::chunk::{Chunk, OpCode, Value};
+use crate::lex::{Lexer, TokenKind};
+use crate::{CompileError, Located};
 
 struct Compiler<'a> {
     lexer: Lexer<'a>,
@@ -8,18 +9,22 @@ struct Compiler<'a> {
 }
 
 impl Compiler<'_> {
+    fn consume(kind: TokenKind, error: CompileError) {
+    }
+
     fn current_chunk(&mut self) -> &mut Chunk {
         &mut self.chunks[self.chunk]
-    }
-    
-    fn grouping(&mut self) {
-        self.expression()
     }
 
     fn expression(&mut self) {
         todo!()
     }
 
+    fn grouping(&mut self) {
+        self.expression()
+    }
+
+    fn unary(&mut self) {}
 
     pub fn emit_op(&mut self, op: OpCode, pos: (u16, u16)) {
         self.emit_byte(op as u8, pos)
@@ -47,5 +52,9 @@ impl Compiler<'_> {
         } else {
             constant as u8
         }
+    }
+
+    fn error(error: Located<CompileError>) {
+        eprintln!("{error}")
     }
 }
