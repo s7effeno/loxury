@@ -91,16 +91,10 @@ impl<'a> Lexer<'a> {
             peeked: None,
         }
     }
+}
 
-    fn peek<'b>(&'b mut self) -> Option<Result<Located<Token<'b>>, Located<CompileError>>> {
-        if let Some(peeked) = &self.peeked {
-            peeked.clone()
-        } else {
-            let next = self.next();
-            self.peeked = Some(next.clone());
-            next
-        }
-    }
+impl<'a> Iterator for Lexer<'a> {
+    type Item = Result<Located<Token<'a>>, Located<CompileError>>;
 
     fn next<'b>(&'b mut self) -> Option<Result<Located<Token<'a>>, Located<CompileError>>> {
         if let Some(ret) = self.peeked.take() {
