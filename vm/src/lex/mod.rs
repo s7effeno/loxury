@@ -81,14 +81,12 @@ impl Iterator for Text<'_> {
 
 pub struct Lexer<'a> {
     source: Text<'a>,
-    peeked: Option<Option<Result<Located<Token<'a>>, Located<CompileError>>>>,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
         Self {
             source: Text::new(source),
-            peeked: None,
         }
     }
 }
@@ -96,10 +94,7 @@ impl<'a> Lexer<'a> {
 impl<'a> Iterator for Lexer<'a> {
     type Item = Result<Located<Token<'a>>, Located<CompileError>>;
 
-    fn next<'b>(&'b mut self) -> Option<Result<Located<Token<'a>>, Located<CompileError>>> {
-        if let Some(ret) = self.peeked.take() {
-            return ret;
-        }
+    fn next(&mut self) -> Option<Self::Item> {
         Some({
             let row = self.source.row();
             let col = self.source.col();
@@ -619,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn unterminated_string() {
+    fn unclosed_string() {
         assert!(matches!(
             Lexer::new("\"").next().unwrap().err().unwrap().value(),
             CompileError::UnclosedString
@@ -627,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn stray_character() {
+    fn stray_char() {
         assert!(matches!(
             Lexer::new("`").next().unwrap().err().unwrap().value(),
             CompileError::StrayChar('`')
