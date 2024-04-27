@@ -75,6 +75,7 @@ impl<E: Error> Error for Located<E> {}
 pub enum CompileError {
     UnclosedString,
     StrayChar(char),
+    UnclosedGrouping,
 }
 
 impl Display for CompileError {
@@ -82,6 +83,7 @@ impl Display for CompileError {
         match self {
             Self::UnclosedString => write!(f, "expected '\"' at the end of string"),
             Self::StrayChar(c) => write!(f, "stray '{}' in program", c),
+            Self::UnclosedGrouping => write!(f, "expected ')' after expression"),
         }
     }
 }

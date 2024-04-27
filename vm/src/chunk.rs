@@ -26,4 +26,6 @@ pub enum OpCode {
     Return,
 }
 
-pub enum Value {}
+pub enum Value {
+    Number(f64),
+}

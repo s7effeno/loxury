@@ -1,15 +1,48 @@
 use crate::chunk::{Chunk, OpCode, Value};
-use crate::lex::{Lexer, TokenKind};
+use crate::lex::{Lexer, Token, TokenKind};
 use crate::{CompileError, Located};
 
+use std::iter::Peekable;
+
 struct Compiler<'a> {
-    lexer: Lexer<'a>,
+    lexer: Peekable<Lexer<'a>>,
     chunks: Vec<Chunk>,
     chunk: usize,
 }
 
-impl Compiler<'_> {
-    fn consume(kind: TokenKind, error: CompileError) {
+impl<'a> Compiler<'a> {
+    fn next_token(&mut self) -> Option<Located<Token<'_>>> {
+        let next = self.lexer.next()?;
+        match next {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("{e}");
+                self.next_token()
+            }
+        }
+    }
+
+    fn peek_token<'b>(&'b mut self) -> Option<Located<Token<'a>>> {
+        let peek = self.lexer.peek()?;
+        match peek {
+            Ok(t) => Some(t.clone()),
+            Err(e) => {
+                eprintln!("{e}");
+                self.lexer.next();
+                self.peek_token()
+            }
+        }
+    }
+
+    fn consume(&mut self, kind: TokenKind, error: CompileError) -> Option<Located<Token<'_>>> {
+        let peek = self.peek_token()?;
+        if kind == peek.kind() {
+            let ret = peek.clone();
+            self.lexer.next();
+            Some(ret)
+        } else {
+            None
+        }
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
@@ -20,11 +53,6 @@ impl Compiler<'_> {
         todo!()
     }
 
-    fn grouping(&mut self) {
-        self.expression()
-    }
-
-    fn unary(&mut self) {}
 
     pub fn emit_op(&mut self, op: OpCode, pos: (u16, u16)) {
         self.emit_byte(op as u8, pos)
@@ -57,4 +85,38 @@ impl Compiler<'_> {
     fn error(error: Located<CompileError>) {
         eprintln!("{error}")
     }
+
+    fn number(&mut self, token: Located<Token<'_>>) {
+        self.emit_constant(
+            Value::Number(token.span().parse().unwrap()),
+            (token.row(), token.col()),
+        );
+    }
+
+    fn grouping(&mut self, token: Located<Token<'_>>) {
+        self.expression();
+        self.consume(TokenKind::RightParen, CompileError::UnclosedGrouping);
+    }
+
+    fn unary(&mut self, token: Located<Token<'_>>) {
+        self.expression();
+        match token.kind() {
+            TokenKind::Minus => self.emit_op(OpCode::Subtract, (token.row(), token.col())),
+            _ => unreachable!(),
+        }
+    }
+}
+
+enum Precedence {
+    None,
+    Assignment,
+    Or,
+    And,
+    Equality,
+    Comparison,
+    Term,
+    Factor,
+    Unary,
+    Call,
+    Primary,
 }

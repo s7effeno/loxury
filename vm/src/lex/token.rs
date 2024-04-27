@@ -1,4 +1,4 @@
-use crate::Located;
+use crate::{Located, Position};
 
 #[derive(Clone, Debug, PartialOrd, PartialEq, Eq)]
 pub enum Kind {
@@ -61,5 +61,20 @@ impl Located<Token<'_>> {
 
     pub fn span(&self) -> &str {
         self.value.span
+    }
+
+    // TODO: change `row` and `col`, ideally implement a new struct that holds only coordinates
+    pub fn row(&self) -> u16 {
+        let Position::Coords(row, _) = self.pos else {
+            panic!()
+        };
+        row
+    }
+
+    pub fn col(&self) -> u16 {
+        let Position::Coords(_, col) = self.pos else {
+            panic!()
+        };
+        col
     }
 }
