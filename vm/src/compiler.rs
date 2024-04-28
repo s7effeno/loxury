@@ -50,7 +50,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn expression(&mut self) {
-        todo!()
+        self.parse_precedence(Precedence::Assignment);
     }
 
 
@@ -99,11 +99,19 @@ impl<'a> Compiler<'a> {
     }
 
     fn unary(&mut self, token: Located<Token<'_>>) {
-        self.expression();
+        self.parse_precedence(Precedence::Unary);
         match token.kind() {
             TokenKind::Minus => self.emit_op(OpCode::Subtract, (token.row(), token.col())),
             _ => unreachable!(),
         }
+    }
+
+    fn binary(&mut self, token: Located<Token<'_>>) {
+        todo!()
+    }
+
+    fn parse_precedence(&mut self, precedence: Precedence) {
+        todo!()
     }
 }
 
