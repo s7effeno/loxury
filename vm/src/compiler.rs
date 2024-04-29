@@ -115,50 +115,65 @@ impl<'a> Compiler<'a> {
         todo!()
     }
 
-    fn get_rule(kind: TokenKind) -> ParseRule {
-        fn unreachable(_: &mut Compiler, _: Located<Token<'_>>) {
-            unreachable!()
+    fn prefix_rule(&'a mut self, token: Located<Token<'_>>) {
+        match token.kind() {
+            TokenKind::LeftParen => self.grouping(token),
+            TokenKind::Minus => self.unary(token),
+            TokenKind::Number => self.number(token),
+            _ => unreachable!(),
         }
+    }
 
+    fn infix_rule(&'a mut self, token: Located<Token<'_>>) {
+        match token.kind() {
+            TokenKind::Minus => self.binary(token),
+            TokenKind::Plus => self.binary(token),
+            TokenKind::Slash => self.binary(token),
+            TokenKind::Star => self.binary(token),
+            _ => unreachable!(),
+        }
+    }
+
+    fn precedence(kind: TokenKind) -> Precedence {
         match kind {
-            TokenKind::LeftParen => ParseRule(Self::grouping, Self::grouping, Precedence::Or),
-            TokenKind::RightParen => todo!(),
-            TokenKind::LeftBrace => todo!(),
-            TokenKind::RightBrace => todo!(),
-            TokenKind::Comma => todo!(),
-            TokenKind::Dot => todo!(),
-            TokenKind::Minus => todo!(),
-            TokenKind::Plus => todo!(),
-            TokenKind::Semicolon => todo!(),
-            TokenKind::Slash => todo!(),
-            TokenKind::Star => todo!(),
-            TokenKind::Bang => todo!(),
-            TokenKind::BangEqual => todo!(),
-            TokenKind::Equal => todo!(),
-            TokenKind::EqualEqual => todo!(),
-            TokenKind::Greater => todo!(),
-            TokenKind::GreaterEqual => todo!(),
-            TokenKind::Less => todo!(),
-            TokenKind::LessEqual => todo!(),
-            TokenKind::And => todo!(),
-            TokenKind::Class => todo!(),
-            TokenKind::Else => todo!(),
-            TokenKind::False => todo!(),
-            TokenKind::Fun => todo!(),
-            TokenKind::For => todo!(),
-            TokenKind::If => todo!(),
-            TokenKind::Nil => todo!(),
-            TokenKind::Or => todo!(),
-            TokenKind::Print => todo!(),
-            TokenKind::Return => todo!(),
-            TokenKind::Super => todo!(),
-            TokenKind::This => todo!(),
-            TokenKind::True => todo!(),
-            TokenKind::Var => todo!(),
-            TokenKind::While => todo!(),
-            TokenKind::String => todo!(),
-            TokenKind::Number => todo!(),
-            TokenKind::Identifier => todo!(),
+            TokenKind::LeftParen => Precedence::None,
+            TokenKind::RightParen => Precedence::None,
+            TokenKind::LeftBrace => Precedence::None,
+            TokenKind::RightBrace => Precedence::None,
+            TokenKind::Comma => Precedence::None,
+            TokenKind::Dot => Precedence::None,
+            TokenKind::Minus => Precedence::Term,
+            TokenKind::Plus => Precedence::Term,
+            TokenKind::Semicolon => Precedence::None,
+            TokenKind::Slash => Precedence::Factor,
+            TokenKind::Star => Precedence::Factor,
+            TokenKind::Bang => Precedence::None,
+            TokenKind::BangEqual => Precedence::None,
+            TokenKind::Equal => Precedence::None,
+            TokenKind::EqualEqual => Precedence::None,
+            TokenKind::Greater => Precedence::None,
+            TokenKind::GreaterEqual => Precedence::None,
+            TokenKind::Less => Precedence::None,
+            TokenKind::LessEqual => Precedence::None,
+            TokenKind::And => Precedence::None,
+            TokenKind::Class => Precedence::None,
+            TokenKind::Else => Precedence::None,
+            TokenKind::False => Precedence::None,
+            TokenKind::Fun => Precedence::None,
+            TokenKind::For => Precedence::None,
+            TokenKind::If => Precedence::None,
+            TokenKind::Nil => Precedence::None,
+            TokenKind::Or => Precedence::None,
+            TokenKind::Print => Precedence::None,
+            TokenKind::Return => Precedence::None,
+            TokenKind::Super => Precedence::None,
+            TokenKind::This => Precedence::None,
+            TokenKind::True => Precedence::None,
+            TokenKind::Var => Precedence::None,
+            TokenKind::While => Precedence::None,
+            TokenKind::String => Precedence::None,
+            TokenKind::Number => Precedence::None,
+            TokenKind::Identifier => Precedence::None,
         }
     }
 }
@@ -176,7 +191,3 @@ enum Precedence {
     Call,
     Primary,
 }
-
-type ParseFn = for<'a, 'b> fn(&'a mut Compiler<'_>, Located<Token<'b>>);
-
-struct ParseRule(ParseFn, ParseFn, Precedence);
