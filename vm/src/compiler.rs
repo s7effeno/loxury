@@ -107,31 +107,39 @@ impl<'a> Compiler<'a> {
 
     fn binary(&mut self, token: Located<Token<'_>>) {
         let operator = token.kind();
-        // let rule = self.get_rule(operator);
-        // self.parse_precedence(rule as u8 + 1);
+        self.parse_precedence(Self::precedence(operator));
+        match operator {
+            TokenKind::Plus => self.emit_op(OpCode::Add, (token.row(), token.col())),
+            TokenKind::Minus => self.emit_op(OpCode::Subtract, (token.row(), token.col())),
+            TokenKind::Star => self.emit_op(OpCode::Multiply, (token.row(), token.col())),
+            TokenKind::Slash => self.emit_op(OpCode::Divide, (token.row(), token.col())),
+            _ => unreachable!(),
+        }
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         todo!()
     }
 
-    fn prefix_rule(&'a mut self, token: Located<Token<'_>>) {
+    fn prefix_rule(&'a mut self, token: Located<Token<'_>>) -> Option<()> {
         match token.kind() {
             TokenKind::LeftParen => self.grouping(token),
             TokenKind::Minus => self.unary(token),
             TokenKind::Number => self.number(token),
-            _ => unreachable!(),
-        }
+            _ => return None,
+        };
+        Some(())
     }
 
-    fn infix_rule(&'a mut self, token: Located<Token<'_>>) {
+    fn infix_rule(&'a mut self, token: Located<Token<'_>>) -> Option<()> {
         match token.kind() {
             TokenKind::Minus => self.binary(token),
             TokenKind::Plus => self.binary(token),
             TokenKind::Slash => self.binary(token),
             TokenKind::Star => self.binary(token),
-            _ => unreachable!(),
-        }
+            _ => return None,
+        };
+        Some(())
     }
 
     fn precedence(kind: TokenKind) -> Precedence {
@@ -190,4 +198,22 @@ enum Precedence {
     Unary,
     Call,
     Primary,
+}
+
+impl Precedence {
+    fn next(&self) -> Self {
+        match self {
+            Precedence::None => Self::Assignment,
+            Precedence::Assignment => Self::Or,
+            Precedence::Or => Self::And,
+            Precedence::And => Self::Equality,
+            Precedence::Equality => Self::Comparison,
+            Precedence::Comparison => Self::Term,
+            Precedence::Term => Self::Factor,
+            Precedence::Factor => Self::Unary,
+            Precedence::Unary => Self::Call,
+            Precedence::Call => Self::Primary,
+            Precedence::Primary => Self::Primary,
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use crate::{Located, Position};
 
-#[derive(Clone, Debug, PartialOrd, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
 pub enum Kind {
     LeftParen,
     RightParen,
