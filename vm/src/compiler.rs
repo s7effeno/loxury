@@ -1,6 +1,7 @@
 use crate::chunk::{Chunk, OpCode, Value};
 use crate::lex::{Lexer, Token, TokenKind};
-use crate::{CompileError, Located};
+use crate::CompileError;
+use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 
 use std::iter::Peekable;
 
@@ -11,7 +12,7 @@ struct Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
-    fn next_token(&mut self) -> Option<Located<Token<'_>>> {
+    fn next_token<'b>(&'b mut self) -> Option<AtCoords<Token<'a>>> {
         let next = self.lexer.next()?;
         match next {
             Ok(t) => Some(t),
@@ -22,7 +23,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn peek_token<'b>(&'b mut self) -> Option<Located<Token<'a>>> {
+    fn peek_token<'b>(&'b mut self) -> Option<AtCoords<Token<'a>>> {
         let peek = self.lexer.peek()?;
         match peek {
             Ok(t) => Some(t.clone()),
@@ -34,7 +35,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn consume(&mut self, kind: TokenKind, error: CompileError) -> Option<Located<Token<'_>>> {
+    fn consume(&mut self, kind: TokenKind, error: CompileError) -> Option<AtCoords<Token<'_>>> {
         let peek = self.peek_token()?;
         if kind == peek.kind() {
             let ret = peek.clone();
@@ -53,22 +54,22 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(Precedence::Assignment);
     }
 
-    pub fn emit_op(&mut self, op: OpCode, pos: (u16, u16)) {
-        self.emit_byte(op as u8, pos)
+    pub fn emit_op(&mut self, op: OpCode, coords: Coords) {
+        self.emit_byte(op as u8, coords)
     }
 
-    fn emit_bytes(&mut self, byte1: u8, byte2: u8, pos: (u16, u16)) {
-        self.emit_byte(byte1, pos);
-        self.emit_byte(byte2, pos);
+    fn emit_bytes(&mut self, byte1: u8, byte2: u8, coords: Coords) {
+        self.emit_byte(byte1, coords);
+        self.emit_byte(byte2, coords);
     }
 
-    fn emit_byte(&mut self, byte: u8, pos: (u16, u16)) {
-        self.current_chunk().write(byte, pos)
+    fn emit_byte(&mut self, byte: u8, coords: Coords) {
+        self.current_chunk().write(byte, coords)
     }
 
-    fn emit_constant(&mut self, value: Value, pos: (u16, u16)) {
+    fn emit_constant(&mut self, value: Value, coords: Coords) {
         let constant = self.make_constant(value);
-        self.emit_bytes(OpCode::Constant as u8, constant, pos);
+        self.emit_bytes(OpCode::Constant as u8, constant, coords);
     }
 
     fn make_constant(&mut self, value: Value) -> u8 {
@@ -81,47 +82,61 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn error(error: Located<CompileError>) {
+    fn error(&self, error: AtCoordsOrEof<CompileError>) {
         eprintln!("{error}")
     }
 
-    fn number(&mut self, token: Located<Token<'_>>) {
+    fn number(&mut self, token: &AtCoords<Token<'_>>) {
         self.emit_constant(
             Value::Number(token.span().parse().unwrap()),
-            (token.row(), token.col()),
+            token.coords(),
         );
     }
 
-    fn grouping(&'a mut self, token: Located<Token<'_>>) {
+    fn grouping<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
         self.expression();
         self.consume(TokenKind::RightParen, CompileError::UnclosedGrouping);
     }
 
-    fn unary(&mut self, token: Located<Token<'_>>) {
+    fn unary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
         self.parse_precedence(Precedence::Unary);
         match token.kind() {
-            TokenKind::Minus => self.emit_op(OpCode::Subtract, (token.row(), token.col())),
+            TokenKind::Minus => self.emit_op(OpCode::Subtract, token.coords()),
             _ => unreachable!(),
         }
     }
 
-    fn binary(&mut self, token: Located<Token<'_>>) {
+    fn binary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
         let operator = token.kind();
-        self.parse_precedence(Self::precedence(operator));
-        match operator {
-            TokenKind::Plus => self.emit_op(OpCode::Add, (token.row(), token.col())),
-            TokenKind::Minus => self.emit_op(OpCode::Subtract, (token.row(), token.col())),
-            TokenKind::Star => self.emit_op(OpCode::Multiply, (token.row(), token.col())),
-            TokenKind::Slash => self.emit_op(OpCode::Divide, (token.row(), token.col())),
+        self.parse_precedence(Self::precedence(operator).next());
+        let op = match operator {
+            TokenKind::Plus => OpCode::Add,
+            TokenKind::Minus => OpCode::Subtract,
+            TokenKind::Star => OpCode::Multiply,
+            TokenKind::Slash => OpCode::Divide,
             _ => unreachable!(),
+        };
+        self.emit_op(op, token.coords())
+    }
+
+    fn parse_precedence<'b>(&'b mut self, precedence: Precedence) {
+        if let Some(token) = self.next_token() {
+            if self.prefix_rule(&token).is_none() {
+                self.error(token.co_locate(CompileError::ExpectedExpression));
+            }
+            while let Some(token) = self.next_token() {
+                if precedence <= Self::precedence(token.kind()) {
+                    self.infix_rule(&token).unwrap();
+                } else {
+                    break;
+                }
+            }
+        } else {
+            self.error(AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
         }
     }
 
-    fn parse_precedence(&mut self, precedence: Precedence) {
-        todo!()
-    }
-
-    fn prefix_rule(&'a mut self, token: Located<Token<'_>>) -> Option<()> {
+    fn prefix_rule<'b>(&'b mut self, token: &AtCoords<Token<'a>>) -> Option<()> {
         match token.kind() {
             TokenKind::LeftParen => self.grouping(token),
             TokenKind::Minus => self.unary(token),
@@ -131,7 +146,7 @@ impl<'a> Compiler<'a> {
         Some(())
     }
 
-    fn infix_rule(&'a mut self, token: Located<Token<'_>>) -> Option<()> {
+    fn infix_rule<'b>(&'b mut self, token: &AtCoords<Token<'a>>) -> Option<()> {
         match token.kind() {
             TokenKind::Minus => self.binary(token),
             TokenKind::Plus => self.binary(token),
@@ -186,6 +201,7 @@ impl<'a> Compiler<'a> {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Precedence {
     None,
     Assignment,

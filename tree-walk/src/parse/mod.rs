@@ -106,11 +106,13 @@ impl<'a> Parser<'a> {
     }
 
     fn class_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let name = self.next_identifier_or_err()
+        let name = self
+            .next_identifier_or_err()
             .map_err(|e| e.co_locate(SyntaxError::ExpectedClassName))?;
 
         let superclass = if self.next_token_if(|t| matches!(t, Token::Less)).is_some() {
-            let superclass = self.next_identifier_or_err()
+            let superclass = self
+                .next_identifier_or_err()
                 .map_err(|e| e.co_locate(SyntaxError::ExpectedSuperClassName))?;
             Some(Expr::Variable(superclass))
         } else {
@@ -135,7 +137,8 @@ impl<'a> Parser<'a> {
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, Located<SyntaxError>> {
-        let identifier = self.next_identifier_or_err()
+        let identifier = self
+            .next_identifier_or_err()
             .map_err(|e| e.co_locate(SyntaxError::ExpectedVariableName))?;
 
         let initializer = if self.next_token_if(|t| matches!(t, Token::Equal)).is_some() {
@@ -301,7 +304,8 @@ impl<'a> Parser<'a> {
     }
 
     fn function(&mut self) -> Result<Rc<Function>, Located<SyntaxError>> {
-        let name = self.next_identifier_or_err()
+        let name = self
+            .next_identifier_or_err()
             .map_err(|e| e.co_locate(SyntaxError::ExpectedFunctionName))?;
 
         self.next_token_if_or_err(|t| matches!(t, Token::LeftParen))
@@ -314,7 +318,8 @@ impl<'a> Parser<'a> {
             .is_some_and(|t| !matches!(t.value(), Token::RightParen))
         {
             loop {
-                let name = self.next_identifier_or_err()
+                let name = self
+                    .next_identifier_or_err()
                     .map_err(|e| e.co_locate(SyntaxError::ExpectedParameterName))?;
                 params.push(name);
                 if self.next_token_if(|t| matches!(t, Token::Comma)).is_none() {
@@ -496,7 +501,8 @@ impl<'a> Parser<'a> {
             {
                 expr = self.finish_call(expr)?;
             } else if self.next_token_if(|t| matches!(t, Token::Dot)).is_some() {
-                let name = self.next_identifier_or_err()
+                let name = self
+                    .next_identifier_or_err()
                     .map_err(|e| e.co_locate(SyntaxError::ExpectedPropertyName))?;
                 expr = Expr::Get(expr.into(), name)
             } else {
@@ -520,7 +526,8 @@ impl<'a> Parser<'a> {
             let loc = t.co_locate(());
             self.next_token_if_or_err(|t| matches!(t, Token::Dot))
                 .map_err(|e| e.co_locate(SyntaxError::ExpectedSuperClassName))?;
-            let method = self.next_identifier_or_err()
+            let method = self
+                .next_identifier_or_err()
                 .map_err(|e| e.co_locate(SyntaxError::IncompleteSuper))?;
             Ok(Expr::Super(loc, method))
         } else if let Some(t) = self.next_token_if(|t| matches!(t, Token::Number(_))) {

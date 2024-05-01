@@ -1,13 +1,15 @@
+use crate::location::Coords;
+
 pub struct Chunk {
     code: Vec<u8>,
-    lines: Vec<(u16, u16)>,
+    coords: Vec<Coords>,
     constants: Vec<Value>,
 }
 
 impl Chunk {
-    pub fn write(&mut self, byte: u8, pos: (u16, u16)) {
+    pub fn write(&mut self, byte: u8, coords: Coords) {
         self.code.push(byte);
-        self.lines.push(pos);
+        self.coords.push(coords);
     }
 
     pub fn add_constant(&mut self, value: Value) -> u32 {

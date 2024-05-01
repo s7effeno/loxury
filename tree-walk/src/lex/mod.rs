@@ -189,13 +189,21 @@ impl Iterator for Lexer<'_> {
             } else if self.source.peek().is_some_and(|c| matches!(c, '0'..='9')) {
                 let mut number = self.integer();
                 let mut cloned = self.source.clone();
-                if cloned.next_if(|&c| c == '.').and_then(|_| cloned.next_if(|c| matches!(c, '0'..='9'))).is_some() {
+                if cloned
+                    .next_if(|&c| c == '.')
+                    .and_then(|_| cloned.next_if(|c| matches!(c, '0'..='9')))
+                    .is_some()
+                {
                     self.source.next();
                     number.push('.');
                     number.push_str(&self.integer());
                 }
                 self.local_token(Token::Number(number.parse().unwrap()))
-            } else if self.source.peek().is_some_and(|c| c.is_alphabetic() || *c == '_') {
+            } else if self
+                .source
+                .peek()
+                .is_some_and(|c| c.is_alphabetic() || *c == '_')
+            {
                 let identifier: String = self
                     .source
                     .peeking_take_string_while(|c| c.is_alphanumeric() || *c == '_');

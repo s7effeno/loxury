@@ -1,4 +1,5 @@
-use crate::{CompileError, Located};
+use crate::CompileError;
+use crate::location::{AtCoords, AtCoordsOrEof};
 use std::str::Chars;
 
 mod token;
@@ -92,17 +93,17 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Located<Token<'a>>, Located<CompileError>>;
+    type Item = Result<AtCoords<Token<'a>>, AtCoordsOrEof<CompileError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some({
             let row = self.source.row();
             let col = self.source.col();
 
-            let local = |t| Located::at_coords(row, col, t);
+            let local = |t| AtCoords::at(row, col, t);
             let local_spanned_token = |kind, span| Ok(local(Token::new(kind, span)));
             let local_token = |kind| local_spanned_token(kind, "");
-            let local_err = |err| Err(Located::at_coords(row, col, err));
+            let local_err = |err| Err(AtCoordsOrEof::at_coords(row, col, err));
 
             match self.source.peek()? {
                 '(' => {
@@ -195,7 +196,7 @@ impl<'a> Iterator for Lexer<'a> {
                     if self.source.next().is_some() {
                         local_spanned_token(TokenKind::String, s)
                     } else {
-                        Err(Located::at_eof(CompileError::UnclosedString))
+                        Err(AtCoordsOrEof::at_eof(CompileError::UnclosedString))
                     }
                 }
                 c if c.is_digit(10) => {

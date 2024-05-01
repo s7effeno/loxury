@@ -1,6 +1,6 @@
-use tree_walk::{Interpreter, Lexer, Parser, Resolver};
 use std::io::{self, Write};
 use std::{env, fs, process};
+use tree_walk::{Interpreter, Lexer, Parser, Resolver};
 
 fn main() {
     let mut args = env::args();
