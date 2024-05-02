@@ -7,6 +7,14 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    pub fn new() -> Self {
+        Self {
+            code: Vec::new(),
+            coords: Vec::new(),
+            constants: Vec::new(),
+        }
+    }
+
     pub fn byte_at(&self, index: usize) -> u8 {
         self.code[index]
     }
@@ -23,6 +31,10 @@ impl Chunk {
 
     pub fn get_constant(&self, index: u8) -> Value {
         self.constants[index as usize]
+    }
+
+    pub fn coords(&self, index: usize) -> Coords {
+        self.coords[index]
     }
 }
 
@@ -48,12 +60,14 @@ impl TryFrom<u8> for OpCode {
             4 => Ok(Self::Divide),
             5 => Ok(Self::Negate),
             6 => Ok(Self::Return),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum Value {
+    Bool(bool),
+    Nil,
     Number(f64),
 }

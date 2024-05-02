@@ -1,8 +1,17 @@
-use std::fmt::{self, Debug, Display, Formatter};
 use std::error::Error;
+use std::fmt::{self, Debug, Display, Formatter};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Coords(u16, u16);
+
+impl Coords {
+    pub fn locate<T>(&self, value: T) -> AtCoords<T> {
+        AtCoords {
+            coords: *self,
+            value,
+        }
+    }
+}
 
 impl Display for Coords {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -39,6 +48,7 @@ impl<T: Display> Display for AtCoords<T> {
     }
 }
 
+#[derive(Clone)]
 pub enum AtCoordsOrEof<T> {
     AtCoords(AtCoords<T>),
     Eof(T),

@@ -1,23 +1,33 @@
 use crate::chunk::{Chunk, OpCode, Value};
 use crate::lex::{Lexer, Token, TokenKind};
-use crate::CompileError;
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
+use crate::CompileError;
 
 use std::iter::Peekable;
 
-struct Compiler<'a> {
+pub struct Compiler<'a> {
     lexer: Peekable<Lexer<'a>>,
-    chunks: Vec<Chunk>,
-    chunk: usize,
+    compiling_chunk: &'a mut Chunk,
+    had_error: bool,
+    panic_mode: bool,
 }
 
 impl<'a> Compiler<'a> {
+    pub fn compile(source: &'a str, chunk: &'a mut Chunk) -> Self {
+        Self {
+            lexer: Lexer::new(source).peekable(),
+            compiling_chunk: chunk,
+            had_error: false,
+            panic_mode: false,
+        }
+    }
+
     fn next_token<'b>(&'b mut self) -> Option<AtCoords<Token<'a>>> {
         let next = self.lexer.next()?;
         match next {
             Ok(t) => Some(t),
             Err(e) => {
-                eprintln!("{e}");
+                self.error(&e);
                 self.next_token()
             }
         }
@@ -28,7 +38,9 @@ impl<'a> Compiler<'a> {
         match peek {
             Ok(t) => Some(t.clone()),
             Err(e) => {
-                eprintln!("{e}");
+                let e = e.clone();
+                // FIXME: can't figure out lifetimes
+                self.error(&e);
                 self.lexer.next();
                 self.peek_token()
             }
@@ -47,11 +59,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.chunks[self.chunk]
-    }
-
-    fn expression(&mut self) {
-        self.parse_precedence(Precedence::Assignment);
+        &mut self.compiling_chunk
     }
 
     pub fn emit_op(&mut self, op: OpCode, coords: Coords) {
@@ -82,47 +90,22 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn error(&self, error: AtCoordsOrEof<CompileError>) {
-        eprintln!("{error}")
-    }
-
-    fn number(&mut self, token: &AtCoords<Token<'_>>) {
-        self.emit_constant(
-            Value::Number(token.span().parse().unwrap()),
-            token.coords(),
-        );
-    }
-
-    fn grouping<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
-        self.expression();
-        self.consume(TokenKind::RightParen, CompileError::UnclosedGrouping);
-    }
-
-    fn unary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
-        self.parse_precedence(Precedence::Unary);
-        match token.kind() {
-            TokenKind::Minus => self.emit_op(OpCode::Subtract, token.coords()),
-            _ => unreachable!(),
+    fn error(&mut self, error: &AtCoordsOrEof<CompileError>) {
+        if !self.panic_mode {
+            self.panic_mode = true;
+            self.had_error = true;
+            eprintln!("{error}");
         }
     }
 
-    fn binary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
-        let operator = token.kind();
-        self.parse_precedence(Self::precedence(operator).next());
-        let op = match operator {
-            TokenKind::Plus => OpCode::Add,
-            TokenKind::Minus => OpCode::Subtract,
-            TokenKind::Star => OpCode::Multiply,
-            TokenKind::Slash => OpCode::Divide,
-            _ => unreachable!(),
-        };
-        self.emit_op(op, token.coords())
+    fn expression(&mut self) {
+        self.parse_precedence(Precedence::Assignment);
     }
 
     fn parse_precedence<'b>(&'b mut self, precedence: Precedence) {
         if let Some(token) = self.next_token() {
             if self.prefix_rule(&token).is_none() {
-                self.error(token.co_locate(CompileError::ExpectedExpression));
+                self.error(&token.co_locate(CompileError::ExpectedExpression));
             }
             while let Some(token) = self.next_token() {
                 if precedence <= Self::precedence(token.kind()) {
@@ -132,7 +115,7 @@ impl<'a> Compiler<'a> {
                 }
             }
         } else {
-            self.error(AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
+            self.error(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
         }
     }
 
@@ -199,6 +182,37 @@ impl<'a> Compiler<'a> {
             TokenKind::Identifier => Precedence::None,
         }
     }
+
+    fn number(&mut self, token: &AtCoords<Token<'_>>) {
+        self.emit_constant(Value::Number(token.span().parse().unwrap()), token.coords());
+    }
+
+    fn grouping<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
+        self.expression();
+        self.consume(TokenKind::RightParen, CompileError::UnclosedGrouping);
+    }
+
+    fn unary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
+        self.parse_precedence(Precedence::Unary);
+        match token.kind() {
+            TokenKind::Minus => self.emit_op(OpCode::Subtract, token.coords()),
+            _ => unreachable!(),
+        }
+    }
+
+    fn binary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
+        let operator = token.kind();
+        self.parse_precedence(Self::precedence(operator).next());
+        let op = match operator {
+            TokenKind::Plus => OpCode::Add,
+            TokenKind::Minus => OpCode::Subtract,
+            TokenKind::Star => OpCode::Multiply,
+            TokenKind::Slash => OpCode::Divide,
+            _ => unreachable!(),
+        };
+        self.emit_op(op, token.coords())
+    }
+
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]

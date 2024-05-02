@@ -1,8 +1,8 @@
 mod chunk;
 mod compiler;
 mod lex;
-mod vm;
 mod location;
+mod vm;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
@@ -27,3 +27,18 @@ impl Display for CompileError {
 }
 
 impl Error for CompileError {}
+
+#[derive(Debug, Clone)]
+pub enum RunError {
+    ExpectedNumbers,
+}
+
+impl Display for RunError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ExpectedNumbers => write!(f, "operands must be numbers"),
+        }
+    }
+}
+
+impl Error for RunError {}
