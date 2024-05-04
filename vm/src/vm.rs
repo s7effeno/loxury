@@ -1,4 +1,9 @@
-use crate::{chunk::{Chunk, OpCode, Value}, RunError, location::AtCoords, compiler::Compiler};
+use crate::{
+    chunk::{Chunk, OpCode, Value},
+    compiler::Compiler,
+    location::AtCoords,
+    RunError,
+};
 use std::mem::MaybeUninit;
 
 struct Stack {
@@ -27,7 +32,7 @@ impl Stack {
     }
 }
 
-struct Vm {
+pub struct Vm {
     chunk: Chunk,
     ip: usize,
     stack: Stack,
@@ -35,9 +40,9 @@ struct Vm {
 }
 
 impl Vm {
-    fn new(source: &str) -> Result<Self, ()> {
+    pub fn new(source: &str) -> Result<Self, ()> {
         let mut chunk = Chunk::new();
-        let compiler = Compiler::compile(source, &mut chunk)?;
+        Compiler::compile(source, &mut chunk)?;
         Ok(Self {
             chunk,
             ip: 0,
@@ -57,7 +62,7 @@ impl Vm {
         ret
     }
 
-    fn run(&mut self) -> Result<(), ()> {
+    pub fn run(&mut self) -> Result<(), ()> {
         loop {
             match self.read_byte().try_into().unwrap() {
                 OpCode::Return => {

@@ -13,12 +13,19 @@ pub struct Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
-    pub fn compile(source: &'a str, chunk: &'a mut Chunk) -> Self {
-        Self {
+    pub fn compile(source: &'a str, chunk: &'a mut Chunk) -> Result<(), ()> {
+        let mut compiler = Self {
             lexer: Lexer::new(source).peekable(),
             compiling_chunk: chunk,
             had_error: false,
             panic_mode: false,
+        };
+        compiler.expression();
+        if !compiler.had_error {
+            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
+            Ok(())
+        } else {
+            Err(())
         }
     }
 
@@ -212,10 +219,9 @@ impl<'a> Compiler<'a> {
         };
         self.emit_op(op, token.coords())
     }
-
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Precedence {
     None,
     Assignment,

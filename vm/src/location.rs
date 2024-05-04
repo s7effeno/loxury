@@ -5,6 +5,10 @@ use std::fmt::{self, Debug, Display, Formatter};
 pub struct Coords(u16, u16);
 
 impl Coords {
+    pub fn new(row: u16, col: u16) -> Self {
+        Self(row, col)
+    }
+
     pub fn locate<T>(&self, value: T) -> AtCoords<T> {
         AtCoords {
             coords: *self,
@@ -48,7 +52,7 @@ impl<T: Display> Display for AtCoords<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum AtCoordsOrEof<T> {
     AtCoords(AtCoords<T>),
     Eof(T),
@@ -70,6 +74,13 @@ impl<T> AtCoordsOrEof<T> {
 
     pub fn at_eof(value: T) -> Self {
         Self::Eof(value)
+    }
+
+    pub fn value(&self) -> &T {
+        match self {
+            Self::AtCoords(v) => &v.value,
+            Self::Eof(v) => v,
+        }
     }
 }
 

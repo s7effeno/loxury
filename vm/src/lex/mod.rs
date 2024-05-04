@@ -257,9 +257,8 @@ impl<'a> Iterator for Lexer<'a> {
                     map_identifier()
                 }
                 c if c.is_whitespace() => {
-                    while self.source.next_if(|c| c.is_whitespace()).is_some() {
-                        self.source.next();
-                    }
+                    self.source.next();
+                    while self.source.next_if(|c| c.is_whitespace()).is_some() {}
                     self.next()?
                 }
                 c => {

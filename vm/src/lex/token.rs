@@ -42,7 +42,7 @@ pub enum Kind {
     Identifier,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Token<'a> {
     kind: Kind,
     span: &'a str,
