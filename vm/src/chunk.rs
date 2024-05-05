@@ -1,8 +1,10 @@
+use std::fmt::{Display, self};
+
 use crate::location::Coords;
 
 #[derive(Debug)]
 pub struct Chunk {
-    code: Vec<u8>,
+    pub code: Vec<u8>,
     coords: Vec<Coords>,
     constants: Vec<Value>,
 }
@@ -40,6 +42,24 @@ impl Chunk {
 
     pub fn coords(&self, index: usize) -> Coords {
         self.coords[index]
+    }
+}
+
+impl Display for Chunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut bytes = self.code.iter();
+        while let Some(&b) = bytes.next() {
+            match b.try_into().unwrap() {
+                OpCode::Constant => todo!(),
+                OpCode::Add => todo!(),
+                OpCode::Subtract => todo!(),
+                OpCode::Multiply => todo!(),
+                OpCode::Divide => todo!(),
+                OpCode::Negate => todo!(),
+                OpCode::Return => todo!(),
+            }
+        }
+        todo!()
     }
 }
 

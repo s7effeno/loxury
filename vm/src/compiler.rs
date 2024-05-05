@@ -23,6 +23,7 @@ impl<'a> Compiler<'a> {
         compiler.expression();
         if !compiler.had_error {
             compiler.current_chunk().write_nowhere(OpCode::Return as u8);
+            println!("compiled: {:?}", compiler.compiling_chunk.code);
             Ok(())
         } else {
             Err(())
@@ -124,9 +125,11 @@ impl<'a> Compiler<'a> {
         if let Some(token) = self.next_token() {
             if self.prefix_rule(&token).is_none() {
                 self.error(&token.co_locate(CompileError::ExpectedExpression));
-            }
-            while let Some(token) = self.next_token_if(|t| precedence < Self::precedence(t)) {
-                self.infix_rule(&token).unwrap();
+            } else {
+                while let Some(token) = self.next_token_if(|t| precedence < Self::precedence(t)) {
+                    println!("accepted {:?}", token.kind());
+                    self.infix_rule(&token).unwrap();
+                }
             }
         } else {
             self.error(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
@@ -216,6 +219,7 @@ impl<'a> Compiler<'a> {
 
     fn binary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
         let operator = token.kind();
+        println!("parsing binary with {:?} token, {:?} precedence", token.kind(), Self::precedence(operator).next());
         self.parse_precedence(Self::precedence(operator).next());
         let op = match operator {
             TokenKind::Plus => OpCode::Add,
