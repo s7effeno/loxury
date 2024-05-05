@@ -54,6 +54,16 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn next_token_if<'b, F>(&'b mut self, f: F) -> Option<AtCoords<Token<'a>>>
+    where
+        F: Fn(TokenKind) -> bool,
+    {
+        self.peek_token().filter(|t| f(t.kind())).map(|t| {
+            self.lexer.next();
+            t
+        })
+    }
+
     fn consume(&mut self, kind: TokenKind, error: CompileError) -> Option<AtCoords<Token<'_>>> {
         let peek = self.peek_token()?;
         if kind == peek.kind() {
@@ -61,6 +71,7 @@ impl<'a> Compiler<'a> {
             self.lexer.next();
             Some(ret)
         } else {
+            self.error(&peek.co_locate(error));
             None
         }
     }
@@ -114,12 +125,8 @@ impl<'a> Compiler<'a> {
             if self.prefix_rule(&token).is_none() {
                 self.error(&token.co_locate(CompileError::ExpectedExpression));
             }
-            while let Some(token) = self.next_token() {
-                if precedence <= Self::precedence(token.kind()) {
-                    self.infix_rule(&token).unwrap();
-                } else {
-                    break;
-                }
+            while let Some(token) = self.next_token_if(|t| precedence < Self::precedence(t)) {
+                self.infix_rule(&token).unwrap();
             }
         } else {
             self.error(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
@@ -194,7 +201,7 @@ impl<'a> Compiler<'a> {
         self.emit_constant(Value::Number(token.span().parse().unwrap()), token.coords());
     }
 
-    fn grouping<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
+    fn grouping<'b>(&'b mut self, _token: &AtCoords<Token<'a>>) {
         self.expression();
         self.consume(TokenKind::RightParen, CompileError::UnclosedGrouping);
     }
