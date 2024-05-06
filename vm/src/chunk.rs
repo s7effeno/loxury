@@ -1,4 +1,4 @@
-use std::fmt::{Display, self};
+use std::fmt::{self, Display};
 
 use crate::location::Coords;
 
@@ -73,6 +73,27 @@ impl Display for Chunk {
                 OpCode::Return => {
                     writeln!(f, "return")?;
                 }
+                OpCode::Nil => {
+                    writeln!(f, "nil")?;
+                }
+                OpCode::True => {
+                    writeln!(f, "true")?;
+                }
+                OpCode::False => {
+                    writeln!(f, "false")?;
+                }
+                OpCode::Not => {
+                    writeln!(f, "not")?;
+                }
+                OpCode::Equal => {
+                    writeln!(f, "equal")?;
+                }
+                OpCode::Greater => {
+                    writeln!(f, "greater")?;
+                }
+                OpCode::Less => {
+                    writeln!(f, "less")?;
+                }
             }
         }
         write!(f, "")
@@ -81,10 +102,17 @@ impl Display for Chunk {
 
 pub enum OpCode {
     Constant,
+    Nil,
+    True,
+    False,
+    Equal,
+    Greater,
+    Less,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Not,
     Negate,
     Return,
 }
@@ -95,12 +123,19 @@ impl TryFrom<u8> for OpCode {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Constant),
-            1 => Ok(Self::Add),
-            2 => Ok(Self::Subtract),
-            3 => Ok(Self::Multiply),
-            4 => Ok(Self::Divide),
-            5 => Ok(Self::Negate),
-            6 => Ok(Self::Return),
+            1 => Ok(Self::Nil),
+            2 => Ok(Self::True),
+            3 => Ok(Self::False),
+            4 => Ok(Self::Equal),
+            5 => Ok(Self::Greater),
+            6 => Ok(Self::Less),
+            7 => Ok(Self::Add),
+            8 => Ok(Self::Subtract),
+            9 => Ok(Self::Multiply),
+            10 => Ok(Self::Divide),
+            11 => Ok(Self::Not),
+            12 => Ok(Self::Negate),
+            13 => Ok(Self::Return),
             _ => Err(()),
         }
     }

@@ -1,9 +1,6 @@
-use crate::{
-    chunk::{Chunk, OpCode, Value},
-    compiler::Compiler,
-    location::AtCoords,
-    RunError,
-};
+use crate::chunk::{Chunk, OpCode, Value};
+use crate::compiler::Compiler;
+use crate::RunError;
 use std::mem::MaybeUninit;
 
 struct Stack {
@@ -51,9 +48,10 @@ impl Vm {
         })
     }
 
-    fn error(&mut self, error: RunError) {
+    fn error(&mut self, error: RunError) -> Result<(), ()> {
         eprintln!("{}", self.chunk.coords(self.ip).locate(error));
         self.had_error = true;
+        Err(())
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -64,6 +62,7 @@ impl Vm {
 
     pub fn run(&mut self) -> Result<(), ()> {
         loop {
+            // TODO: add macro for binary expressions
             match self.read_byte().try_into().unwrap() {
                 OpCode::Return => {
                     println!("{:?}", self.stack.pop());
@@ -81,7 +80,7 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a + b))
                         }
-                        _ => todo!(),
+                        _ => self.error(RunError::ExpectedNumbers)?,
                     }
                 }
                 OpCode::Subtract => {
@@ -91,7 +90,7 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a - b))
                         }
-                        _ => todo!(),
+                        _ => self.error(RunError::ExpectedNumbers)?,
                     }
                 }
                 OpCode::Multiply => {
@@ -101,7 +100,7 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a * b))
                         }
-                        _ => todo!(),
+                        _ => self.error(RunError::ExpectedNumbers)?,
                     }
                 }
                 OpCode::Divide => {
@@ -111,13 +110,60 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a / b))
                         }
-                        _ => todo!(),
+                        _ => self.error(RunError::ExpectedNumbers)?,
                     }
                 }
                 OpCode::Negate => match self.stack.pop() {
                     Value::Number(n) => self.stack.push(Value::Number(-n)),
-                    _ => todo!(),
+                    _ => self.error(RunError::ExpectedNumber)?,
                 },
+                OpCode::Nil => {
+                    self.stack.push(Value::Nil);
+                }
+                OpCode::True => {
+                    self.stack.push(Value::Bool(true));
+                }
+                OpCode::False => {
+                    self.stack.push(Value::Bool(false));
+                }
+                OpCode::Not => {
+                    fn is_falsey(value: Value) -> bool {
+                        match value {
+                            Value::Nil => true,
+                            Value::Bool(b) => !b,
+                            _ => false,
+                        }
+                    }
+                    let value = is_falsey(self.stack.pop());
+                    self.stack.push(Value::Bool(value));
+                }
+                OpCode::Equal => {
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
+                    // TODO: implement separate function
+                    self.stack.push(Value::Bool(match (a, b) {
+                        (Value::Bool(a), Value::Bool(b)) => a == b,
+                        (Value::Nil, Value::Nil) => true,
+                        (Value::Number(a), Value::Number(b)) => a == b,
+                        _ => false,
+                    }));
+                }
+                OpCode::Greater => {
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a > b)),
+                        _ => self.error(RunError::ExpectedNumbers)?,
+                    }
+                }
+                OpCode::Less => {
+                    let b = self.stack.pop();
+                    let a = self.stack.pop();
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a < b)),
+                        _ => self.error(RunError::ExpectedNumbers)?,
+                    }
+                }
             }
         }
     }

@@ -125,7 +125,7 @@ impl<'a> Compiler<'a> {
             if self.prefix_rule(&token).is_some() {
                 while let Some(token) = self.next_token_if(|t| precedence <= Self::precedence(t)) {
                     self.infix_rule(&token).unwrap();
-                } 
+                }
             } else {
                 self.error(&token.co_locate(CompileError::ExpectedExpression));
             }
@@ -139,6 +139,10 @@ impl<'a> Compiler<'a> {
             TokenKind::LeftParen => self.grouping(token),
             TokenKind::Minus => self.unary(token),
             TokenKind::Number => self.number(token),
+            TokenKind::False => self.literal(token),
+            TokenKind::True => self.literal(token),
+            TokenKind::Nil => self.literal(token),
+            TokenKind::Bang => self.unary(token),
             _ => return None,
         };
         Some(())
@@ -150,6 +154,12 @@ impl<'a> Compiler<'a> {
             TokenKind::Plus => self.binary(token),
             TokenKind::Slash => self.binary(token),
             TokenKind::Star => self.binary(token),
+            TokenKind::BangEqual => self.binary(token),
+            TokenKind::EqualEqual => self.binary(token),
+            TokenKind::Greater => self.binary(token),
+            TokenKind::GreaterEqual => self.binary(token),
+            TokenKind::Less => self.binary(token),
+            TokenKind::LessEqual => self.binary(token),
             _ => return None,
         };
         Some(())
@@ -169,13 +179,13 @@ impl<'a> Compiler<'a> {
             TokenKind::Slash => Precedence::Factor,
             TokenKind::Star => Precedence::Factor,
             TokenKind::Bang => Precedence::None,
-            TokenKind::BangEqual => Precedence::None,
+            TokenKind::BangEqual => Precedence::Equality,
             TokenKind::Equal => Precedence::None,
-            TokenKind::EqualEqual => Precedence::None,
-            TokenKind::Greater => Precedence::None,
-            TokenKind::GreaterEqual => Precedence::None,
-            TokenKind::Less => Precedence::None,
-            TokenKind::LessEqual => Precedence::None,
+            TokenKind::EqualEqual => Precedence::Equality,
+            TokenKind::Greater => Precedence::Comparison,
+            TokenKind::GreaterEqual => Precedence::Comparison,
+            TokenKind::Less => Precedence::Comparison,
+            TokenKind::LessEqual => Precedence::Comparison,
             TokenKind::And => Precedence::None,
             TokenKind::Class => Precedence::None,
             TokenKind::Else => Precedence::None,
@@ -210,6 +220,7 @@ impl<'a> Compiler<'a> {
     fn unary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
         self.parse_precedence(Precedence::Unary);
         match token.kind() {
+            TokenKind::Bang => self.emit_op(OpCode::Not, token.coords()),
             TokenKind::Minus => self.emit_op(OpCode::Subtract, token.coords()),
             _ => unreachable!(),
         }
@@ -218,14 +229,37 @@ impl<'a> Compiler<'a> {
     fn binary<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
         let operator = token.kind();
         self.parse_precedence(Self::precedence(operator).next());
-        let op = match operator {
-            TokenKind::Plus => OpCode::Add,
-            TokenKind::Minus => OpCode::Subtract,
-            TokenKind::Star => OpCode::Multiply,
-            TokenKind::Slash => OpCode::Divide,
+        match operator {
+            TokenKind::Plus => self.emit_op(OpCode::Add, token.coords()),
+            TokenKind::Minus => self.emit_op(OpCode::Subtract, token.coords()),
+            TokenKind::Star => self.emit_op(OpCode::Multiply, token.coords()),
+            TokenKind::Slash => self.emit_op(OpCode::Divide, token.coords()),
+            TokenKind::BangEqual => {
+                self.emit_op(OpCode::Equal, token.coords());
+                self.emit_op(OpCode::Not, token.coords());
+            }
+            TokenKind::EqualEqual => self.emit_op(OpCode::Equal, token.coords()),
+            TokenKind::Greater => self.emit_op(OpCode::Greater, token.coords()),
+            TokenKind::GreaterEqual => {
+                self.emit_op(OpCode::Less, token.coords());
+                self.emit_op(OpCode::Not, token.coords());
+            }
+            TokenKind::Less => self.emit_op(OpCode::Less, token.coords()),
+            TokenKind::LessEqual => {
+                self.emit_op(OpCode::Greater, token.coords());
+                self.emit_op(OpCode::Not, token.coords());
+            }
             _ => unreachable!(),
-        };
-        self.emit_op(op, token.coords())
+        }
+    }
+
+    fn literal<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
+        match token.kind() {
+            TokenKind::False => self.emit_op(OpCode::False, token.coords()),
+            TokenKind::Nil => self.emit_op(OpCode::Nil, token.coords()),
+            TokenKind::True => self.emit_op(OpCode::True, token.coords()),
+            _ => unreachable!(),
+        }
     }
 }
 
