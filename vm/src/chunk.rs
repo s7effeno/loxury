@@ -4,7 +4,7 @@ use crate::location::Coords;
 
 #[derive(Debug)]
 pub struct Chunk {
-    pub code: Vec<u8>,
+    code: Vec<u8>,
     coords: Vec<Coords>,
     constants: Vec<Value>,
 }
@@ -50,16 +50,32 @@ impl Display for Chunk {
         let mut bytes = self.code.iter();
         while let Some(&b) = bytes.next() {
             match b.try_into().unwrap() {
-                OpCode::Constant => todo!(),
-                OpCode::Add => todo!(),
-                OpCode::Subtract => todo!(),
-                OpCode::Multiply => todo!(),
-                OpCode::Divide => todo!(),
-                OpCode::Negate => todo!(),
-                OpCode::Return => todo!(),
+                OpCode::Constant => {
+                    let index = *bytes.next().unwrap() as usize;
+                    let value = self.constants[index];
+                    writeln!(f, "constant {value}")?;
+                }
+                OpCode::Add => {
+                    writeln!(f, "add")?;
+                }
+                OpCode::Subtract => {
+                    writeln!(f, "subtract")?;
+                }
+                OpCode::Multiply => {
+                    writeln!(f, "multiply")?;
+                }
+                OpCode::Divide => {
+                    writeln!(f, "divide")?;
+                }
+                OpCode::Negate => {
+                    writeln!(f, "negate")?;
+                }
+                OpCode::Return => {
+                    writeln!(f, "return")?;
+                }
             }
         }
-        todo!()
+        write!(f, "")
     }
 }
 
@@ -95,4 +111,14 @@ pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(v) => write!(f, "{v}"),
+        }
+    }
 }
