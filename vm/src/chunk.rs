@@ -1,3 +1,4 @@
+use gc::{Finalize, Gc, Trace};
 use std::fmt::{self, Display};
 
 use crate::location::Coords;
@@ -37,7 +38,7 @@ impl Chunk {
     }
 
     pub fn get_constant(&self, index: u8) -> Value {
-        self.constants[index as usize]
+        self.constants[index as usize].clone()
     }
 
     pub fn coords(&self, index: usize) -> Coords {
@@ -52,7 +53,7 @@ impl Display for Chunk {
             match b.try_into().unwrap() {
                 OpCode::Constant => {
                     let index = *bytes.next().unwrap() as usize;
-                    let value = self.constants[index];
+                    let value = &self.constants[index];
                     writeln!(f, "constant {value}")?;
                 }
                 OpCode::Add => {
@@ -141,19 +142,40 @@ impl TryFrom<u8> for OpCode {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
+    Object(Gc<Object>),
+}
+
+impl From<Object> for Value {
+    fn from(value: Object) -> Self {
+        Self::Object(Gc::new(value))
+    }
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Bool(v) => write!(f, "{v}"),
             Value::Nil => write!(f, "nil"),
+            Value::Bool(v) => write!(f, "{v}"),
             Value::Number(v) => write!(f, "{v}"),
+            Value::Object(v) => write!(f, "{v}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Trace, Finalize)]
+pub enum Object {
+    String(String),
+}
+
+impl Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::String(s) => write!(f, "{}", s),
         }
     }
 }

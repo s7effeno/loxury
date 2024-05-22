@@ -1,4 +1,4 @@
-use crate::location::{AtCoords, Coords};
+use crate::location::AtCoords;
 
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
 pub enum Kind {

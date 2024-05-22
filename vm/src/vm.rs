@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, OpCode, Value};
+use crate::chunk::{Chunk, Object, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::RunError;
 use std::mem::MaybeUninit;
@@ -25,7 +25,7 @@ impl Stack {
     fn pop(&mut self) -> Value {
         assert_ne!(self.count, 0);
         self.count -= 1;
-        unsafe { (self.values[self.count as usize]).assume_init() }
+        unsafe { (self.values[self.count as usize]).assume_init_ref() }.clone()
     }
 }
 
@@ -80,7 +80,13 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a + b))
                         }
-                        _ => self.error(RunError::ExpectedNumbers)?,
+                        (Value::Object(a), Value::Object(b)) => match (a.as_ref(), b.as_ref()) {
+                            (Object::String(a), Object::String(b)) => {
+                                self.stack.push(Object::String(a.to_owned() + b).into())
+                            }
+                            _ => self.error(RunError::ExpectedNumbersOrStrings)?,
+                        },
+                        _ => self.error(RunError::ExpectedNumbersOrStrings)?,
                     }
                 }
                 OpCode::Subtract => {

@@ -30,15 +30,17 @@ impl Error for CompileError {}
 
 #[derive(Debug, Clone)]
 pub enum RunError {
-    ExpectedNumbers,
     ExpectedNumber,
+    ExpectedNumbers,
+    ExpectedNumbersOrStrings,
 }
 
 impl Display for RunError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ExpectedNumbers => write!(f, "operands must be numbers"),
             Self::ExpectedNumber => write!(f, "operand must be a number"),
+            Self::ExpectedNumbers => write!(f, "operands must be numbers"),
+            Self::ExpectedNumbersOrStrings => write!(f, "operands must be numbers or strings"),
         }
     }
 }

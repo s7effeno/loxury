@@ -1,8 +1,9 @@
-use crate::chunk::{Chunk, OpCode, Value};
+use crate::chunk::{Chunk, Object, OpCode, Value};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::CompileError;
 
+use gc::Gc;
 use std::iter::Peekable;
 
 pub struct Compiler<'a> {
@@ -143,6 +144,7 @@ impl<'a> Compiler<'a> {
             TokenKind::True => self.literal(token),
             TokenKind::Nil => self.literal(token),
             TokenKind::Bang => self.unary(token),
+            TokenKind::String => self.string(token),
             _ => return None,
         };
         Some(())
@@ -210,6 +212,13 @@ impl<'a> Compiler<'a> {
 
     fn number(&mut self, token: &AtCoords<Token<'_>>) {
         self.emit_constant(Value::Number(token.span().parse().unwrap()), token.coords());
+    }
+
+    fn string(&mut self, token: &AtCoords<Token<'_>>) {
+        self.emit_constant(
+            Object::String(token.span().to_owned()).into(),
+            token.coords(),
+        )
     }
 
     fn grouping<'b>(&'b mut self, _token: &AtCoords<Token<'a>>) {
