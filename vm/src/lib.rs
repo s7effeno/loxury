@@ -1,5 +1,5 @@
-mod chunk;
-mod compiler;
+pub mod chunk;
+pub mod compiler;
 mod lex;
 mod location;
 pub mod vm;
@@ -13,6 +13,9 @@ pub enum CompileError {
     StrayChar(char),
     UnclosedGrouping,
     ExpectedExpression,
+    UnclosedStatement,
+    ExpectedVariableName,
+    InvalidAssignmentTarget,
 }
 
 impl Display for CompileError {
@@ -22,6 +25,9 @@ impl Display for CompileError {
             Self::StrayChar(c) => write!(f, "stray '{}' in program", c),
             Self::UnclosedGrouping => write!(f, "expected ')' after expression"),
             Self::ExpectedExpression => write!(f, "expected expression"),
+            Self::UnclosedStatement => write!(f, "expected ';' at the end of statement"),
+            Self::ExpectedVariableName => write!(f, "expected variable name"),
+            Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
         }
     }
 }
@@ -33,6 +39,7 @@ pub enum RunError {
     ExpectedNumber,
     ExpectedNumbers,
     ExpectedNumbersOrStrings,
+    UndefinedVariable(String),
 }
 
 impl Display for RunError {
@@ -41,6 +48,7 @@ impl Display for RunError {
             Self::ExpectedNumber => write!(f, "operand must be a number"),
             Self::ExpectedNumbers => write!(f, "operands must be numbers"),
             Self::ExpectedNumbersOrStrings => write!(f, "operands must be numbers or strings"),
+            Self::UndefinedVariable(v) => write!(f, "variable {} is not defined", v),
         }
     }
 }

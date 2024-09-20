@@ -3,7 +3,6 @@ use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::CompileError;
 
-use gc::Gc;
 use std::iter::Peekable;
 
 pub struct Compiler<'a> {
@@ -21,7 +20,9 @@ impl<'a> Compiler<'a> {
             had_error: false,
             panic_mode: false,
         };
-        compiler.expression();
+        while compiler.peek_token().is_some() {
+            compiler.declaration();
+        }
         if !compiler.had_error {
             compiler.current_chunk().write_nowhere(OpCode::Return as u8);
             Ok(())
@@ -65,14 +66,23 @@ impl<'a> Compiler<'a> {
         })
     }
 
+    fn next_token_if_eq<'b>(&'b mut self, kind: TokenKind) -> Option<AtCoords<Token<'_>>> {
+        self.next_token_if(|t| t == kind)
+    }
+
     fn consume(&mut self, kind: TokenKind, error: CompileError) -> Option<AtCoords<Token<'_>>> {
-        let peek = self.peek_token()?;
-        if kind == peek.kind() {
-            let ret = peek.clone();
-            self.lexer.next();
-            Some(ret)
+        let peek = self.peek_token();
+        if let Some(peek) = peek {
+            if peek.kind() == kind {
+                let ret = peek.clone();
+                self.lexer.next();
+                Some(ret)
+            } else {
+                self.error(&peek.co_locate(error));
+                None
+            }
         } else {
-            self.error(&peek.co_locate(error));
+            self.error(&AtCoordsOrEof::Eof(error));
             None
         }
     }
@@ -121,11 +131,120 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(Precedence::Assignment);
     }
 
+    fn var_declaration(&mut self) {
+        if let Ok((index, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
+            if self.next_token_if_eq(TokenKind::Equal).is_some() {
+                self.expression();
+            } else {
+                self.emit_op(OpCode::Nil, coords);
+            }
+            if let Some(coords) = self
+                .consume(TokenKind::Semicolon, CompileError::UnclosedStatement)
+                .map(|t| t.coords())
+            {
+                self.define_variable(index, coords);
+            }
+        }
+    }
+
+    fn declaration(&mut self) {
+        if self.next_token_if_eq(TokenKind::Var).is_some() {
+            self.var_declaration()
+        } else {
+            self.statement();
+        }
+
+        if self.panic_mode {
+            self.synchronize();
+        }
+    }
+
+    fn statement(&mut self) {
+        if self.next_token_if_eq(TokenKind::Print).is_some() {
+            println!("statement");
+            self.print_statement();
+        } else {
+            self.expression_statement();
+        }
+    }
+
+    fn print_statement(&mut self) {
+        println!("print_statement");
+        self.expression();
+        if let Some(c) = self
+            .consume(TokenKind::Semicolon, CompileError::UnclosedStatement)
+            .map(|t| t.coords())
+        {
+            println!("print statement ok");
+            self.emit_op(OpCode::Print, c)
+        } else {
+            println!("print statement not ok");
+        }
+    }
+
+    fn synchronize(&mut self) {
+        while let Some(t) = self.peek_token() {
+            match t.kind() {
+                TokenKind::Class
+                | TokenKind::Fun
+                | TokenKind::Var
+                | TokenKind::For
+                | TokenKind::If
+                | TokenKind::While
+                | TokenKind::Print
+                | TokenKind::Return => break,
+                TokenKind::Semicolon => {
+                    self.lexer.next();
+                    break;
+                }
+                _ => {
+                    self.next_token();
+                }
+            }
+        }
+    }
+
+    fn identifier_constant(&mut self, name: String) -> u8 {
+        self.make_constant(Value::Object(Object::String(name.into())))
+    }
+
+    fn parse_variable(&mut self, error: CompileError) -> Result<(u8, Coords), ()> {
+        if let Some(identifier) = self.consume(TokenKind::Identifier, error) {
+            let span = identifier.span().into();
+            let coords = identifier.coords();
+            Ok((self.identifier_constant(span), coords))
+        } else {
+            Err(())
+        }
+    }
+
+    fn expression_statement(&mut self) {
+        self.expression();
+        if let Some(c) = self
+            .consume(TokenKind::Semicolon, CompileError::UnclosedStatement)
+            .map(|t| t.coords())
+        {
+            self.emit_op(OpCode::Pop, c);
+        }
+    }
+
+    fn define_variable(&mut self, global: u8, coords: Coords) {
+        self.emit_op(OpCode::DefineGlobal, coords);
+        self.emit_byte(global, coords);
+    }
+
     fn parse_precedence<'b>(&'b mut self, precedence: Precedence) {
         if let Some(token) = self.next_token() {
-            if self.prefix_rule(&token).is_some() {
+            let can_assign = precedence <= Precedence::Assignment;
+            if self.prefix_rule(&token, can_assign).is_some() {
                 while let Some(token) = self.next_token_if(|t| precedence <= Self::precedence(t)) {
                     self.infix_rule(&token).unwrap();
+                }
+
+                if let Some(coords) = self.next_token_if_eq(TokenKind::Equal).map(|t| t.coords()) {
+                    if can_assign {
+                        self.error(&coords.locate(CompileError::InvalidAssignmentTarget).into())
+                    }
                 }
             } else {
                 self.error(&token.co_locate(CompileError::ExpectedExpression));
@@ -135,7 +254,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn prefix_rule<'b>(&'b mut self, token: &AtCoords<Token<'a>>) -> Option<()> {
+    fn prefix_rule<'b>(&'b mut self, token: &AtCoords<Token<'a>>, can_assign: bool) -> Option<()> {
         match token.kind() {
             TokenKind::LeftParen => self.grouping(token),
             TokenKind::Minus => self.unary(token),
@@ -145,6 +264,7 @@ impl<'a> Compiler<'a> {
             TokenKind::Nil => self.literal(token),
             TokenKind::Bang => self.unary(token),
             TokenKind::String => self.string(token),
+            TokenKind::Identifier => self.variable(token, can_assign),
             _ => return None,
         };
         Some(())
@@ -216,9 +336,28 @@ impl<'a> Compiler<'a> {
 
     fn string(&mut self, token: &AtCoords<Token<'_>>) {
         self.emit_constant(
-            Object::String(token.span().to_owned()).into(),
+            Object::String(token.span().to_owned().into()).into(),
             token.coords(),
         )
+    }
+
+    fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
+        let arg = self.identifier_constant(token.span().into());
+        match self.next_token_if_eq(TokenKind::Equal).map(|t| t.coords()) {
+            Some(coords) if can_assign => {
+                self.expression();
+                self.emit_op(OpCode::SetGlobal, coords);
+                self.emit_byte(arg, coords);
+            }
+            _ => {
+                self.emit_op(OpCode::GetGlobal, token.coords());
+                self.emit_byte(arg, token.coords());
+            }
+        }
+    }
+
+    fn variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
+        self.named_variable(token, can_assign)
     }
 
     fn grouping<'b>(&'b mut self, _token: &AtCoords<Token<'a>>) {

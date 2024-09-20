@@ -37,8 +37,8 @@ impl Chunk {
         (self.constants.len() - 1) as u32
     }
 
-    pub fn get_constant(&self, index: u8) -> Value {
-        self.constants[index as usize].clone()
+    pub fn get_constant(&self, index: u8) -> &Value {
+        &self.constants[index as usize]
     }
 
     pub fn coords(&self, index: usize) -> Coords {
@@ -49,55 +49,86 @@ impl Chunk {
 impl Display for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut bytes = self.code.iter();
+        macro_rules! simple {
+            ($op_name:expr) => {
+                writeln!(f, "{}", $op_name)
+            };
+        }
+        macro_rules! byte {
+            ($op_name:expr) => {{
+                let arg = *bytes.next().unwrap();
+                writeln!(f, "{} {}", $op_name, arg);
+            }};
+        }
+        macro_rules! constant {
+            ($op_name:expr) => {{
+                let index = *bytes.next().unwrap() as usize;
+                let arg = &self.constants[index];
+                writeln!(f, "{} {}", $op_name, arg)
+            }};
+        }
         while let Some(&b) = bytes.next() {
             match b.try_into().unwrap() {
                 OpCode::Constant => {
-                    let index = *bytes.next().unwrap() as usize;
-                    let value = &self.constants[index];
-                    writeln!(f, "constant {value}")?;
+                    constant!("constant")?;
                 }
                 OpCode::Add => {
-                    writeln!(f, "add")?;
+                    simple!("add")?;
                 }
                 OpCode::Subtract => {
-                    writeln!(f, "subtract")?;
+                    simple!("subtract")?;
                 }
                 OpCode::Multiply => {
-                    writeln!(f, "multiply")?;
+                    simple!("multiply")?;
                 }
                 OpCode::Divide => {
-                    writeln!(f, "divide")?;
+                    simple!("divide")?;
                 }
                 OpCode::Negate => {
-                    writeln!(f, "negate")?;
+                    simple!("negate")?;
                 }
                 OpCode::Return => {
-                    writeln!(f, "return")?;
+                    simple!("return")?;
                 }
                 OpCode::Nil => {
-                    writeln!(f, "nil")?;
+                    simple!("nil")?;
                 }
                 OpCode::True => {
-                    writeln!(f, "true")?;
+                    simple!("true")?;
                 }
                 OpCode::False => {
-                    writeln!(f, "false")?;
+                    simple!("false")?;
                 }
                 OpCode::Not => {
-                    writeln!(f, "not")?;
+                    simple!("not")?;
                 }
                 OpCode::Equal => {
-                    writeln!(f, "equal")?;
+                    simple!("equal")?;
                 }
                 OpCode::Greater => {
-                    writeln!(f, "greater")?;
+                    simple!("greater")?;
                 }
                 OpCode::Less => {
-                    writeln!(f, "less")?;
+                    simple!("less")?;
+                }
+                OpCode::Print => {
+                    simple!("print")?;
+                }
+                OpCode::Pop => {
+                    simple!("pop")?;
+                }
+                OpCode::DefineGlobal => {
+                    constant!("define global")?;
+                }
+                OpCode::GetGlobal => {
+                    constant!("get global")?;
+                }
+                OpCode::SetGlobal => {
+                    constant!("set global")?;
                 }
             }
         }
-        write!(f, "")
+        Ok(())
     }
 }
 
@@ -106,6 +137,10 @@ pub enum OpCode {
     Nil,
     True,
     False,
+    Pop,
+    GetGlobal,
+    DefineGlobal,
+    SetGlobal,
     Equal,
     Greater,
     Less,
@@ -115,6 +150,7 @@ pub enum OpCode {
     Divide,
     Not,
     Negate,
+    Print,
     Return,
 }
 
@@ -127,16 +163,21 @@ impl TryFrom<u8> for OpCode {
             1 => Ok(Self::Nil),
             2 => Ok(Self::True),
             3 => Ok(Self::False),
-            4 => Ok(Self::Equal),
-            5 => Ok(Self::Greater),
-            6 => Ok(Self::Less),
-            7 => Ok(Self::Add),
-            8 => Ok(Self::Subtract),
-            9 => Ok(Self::Multiply),
-            10 => Ok(Self::Divide),
-            11 => Ok(Self::Not),
-            12 => Ok(Self::Negate),
-            13 => Ok(Self::Return),
+            4 => Ok(Self::Pop),
+            5 => Ok(Self::GetGlobal),
+            6 => Ok(Self::DefineGlobal),
+            7 => Ok(Self::SetGlobal),
+            8 => Ok(Self::Equal),
+            9 => Ok(Self::Greater),
+            10 => Ok(Self::Less),
+            11 => Ok(Self::Add),
+            12 => Ok(Self::Subtract),
+            13 => Ok(Self::Multiply),
+            14 => Ok(Self::Divide),
+            15 => Ok(Self::Not),
+            16 => Ok(Self::Negate),
+            17 => Ok(Self::Print),
+            18 => Ok(Self::Return),
             _ => Err(()),
         }
     }
@@ -147,12 +188,21 @@ pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    Object(Gc<Object>),
+    Object(Object),
+}
+
+impl Value {
+    pub fn try_as_string(&self) -> Result<Gc<String>, ()> {
+        match self {
+            Self::Object(o) => Ok(o.try_as_string()?),
+            _ => Err(()),
+        }
+    }
 }
 
 impl From<Object> for Value {
     fn from(value: Object) -> Self {
-        Self::Object(Gc::new(value))
+        Self::Object(value)
     }
 }
 
@@ -169,7 +219,16 @@ impl Display for Value {
 
 #[derive(Clone, Debug, Trace, Finalize)]
 pub enum Object {
-    String(String),
+    String(Gc<String>),
+}
+
+impl Object {
+    fn try_as_string(&self) -> Result<Gc<String>, ()> {
+        match self {
+            Self::String(s) => Ok(s.clone()),
+            _ => Err(()),
+        }
+    }
 }
 
 impl Display for Object {

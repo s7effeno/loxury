@@ -1,6 +1,9 @@
 use crate::chunk::{Chunk, Object, OpCode, Value};
 use crate::compiler::Compiler;
+use crate::location::AtCoords;
 use crate::RunError;
+use gc::Gc;
+use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
 struct Stack {
@@ -33,25 +36,24 @@ pub struct Vm {
     chunk: Chunk,
     ip: usize,
     stack: Stack,
-    had_error: bool,
+    globals: HashMap<Gc<String>, Value>,
 }
 
 impl Vm {
     pub fn new(source: &str) -> Result<Self, ()> {
+        // TODO: compile in a separate phase
         let mut chunk = Chunk::new();
         Compiler::compile(source, &mut chunk)?;
         Ok(Self {
             chunk,
             ip: 0,
             stack: Stack::new(),
-            had_error: false,
+            globals: HashMap::new(),
         })
     }
 
-    fn error(&mut self, error: RunError) -> Result<(), ()> {
-        eprintln!("{}", self.chunk.coords(self.ip).locate(error));
-        self.had_error = true;
-        Err(())
+    fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
+        Err(self.chunk.coords(self.ip).locate(error))
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -60,17 +62,20 @@ impl Vm {
         ret
     }
 
-    pub fn run(&mut self) -> Result<(), ()> {
+    fn read_constant(&mut self) -> Value {
+        let byte = self.read_byte();
+        self.chunk.get_constant(byte).clone()
+    }
+
+    pub fn run(&mut self) -> Result<(), AtCoords<RunError>> {
         loop {
             // TODO: add macro for binary expressions
             match self.read_byte().try_into().unwrap() {
                 OpCode::Return => {
-                    println!("{:?}", self.stack.pop());
                     return Ok(());
                 }
                 OpCode::Constant => {
-                    let idx = self.read_byte();
-                    let constant = self.chunk.get_constant(idx);
+                    let constant = self.read_constant().clone();
                     self.stack.push(constant);
                 }
                 OpCode::Add => {
@@ -80,13 +85,13 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a + b))
                         }
-                        (Value::Object(a), Value::Object(b)) => match (a.as_ref(), b.as_ref()) {
-                            (Object::String(a), Object::String(b)) => {
-                                self.stack.push(Object::String(a.to_owned() + b).into())
-                            }
-                            _ => self.error(RunError::ExpectedNumbersOrStrings)?,
+                        (Value::Object(a), Value::Object(b)) => match (&a, &b) {
+                            (Object::String(a), Object::String(b)) => self
+                                .stack
+                                .push(Object::String((a.to_string() + &*b).into()).into()),
+                            _ => return self.error(RunError::ExpectedNumbersOrStrings),
                         },
-                        _ => self.error(RunError::ExpectedNumbersOrStrings)?,
+                        _ => return self.error(RunError::ExpectedNumbersOrStrings),
                     }
                 }
                 OpCode::Subtract => {
@@ -96,7 +101,7 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a - b))
                         }
-                        _ => self.error(RunError::ExpectedNumbers)?,
+                        _ => return self.error(RunError::ExpectedNumbers),
                     }
                 }
                 OpCode::Multiply => {
@@ -106,7 +111,7 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a * b))
                         }
-                        _ => self.error(RunError::ExpectedNumbers)?,
+                        _ => return self.error(RunError::ExpectedNumbers),
                     }
                 }
                 OpCode::Divide => {
@@ -116,7 +121,7 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a / b))
                         }
-                        _ => self.error(RunError::ExpectedNumbers)?,
+                        _ => return self.error(RunError::ExpectedNumbers),
                     }
                 }
                 OpCode::Negate => match self.stack.pop() {
@@ -159,7 +164,7 @@ impl Vm {
                     let a = self.stack.pop();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a > b)),
-                        _ => self.error(RunError::ExpectedNumbers)?,
+                        _ => return self.error(RunError::ExpectedNumbers),
                     }
                 }
                 OpCode::Less => {
@@ -167,7 +172,35 @@ impl Vm {
                     let a = self.stack.pop();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a < b)),
-                        _ => self.error(RunError::ExpectedNumbers)?,
+                        _ => return self.error(RunError::ExpectedNumbers),
+                    }
+                }
+                OpCode::Print => {
+                    println!("{}", self.stack.pop());
+                }
+                OpCode::Pop => {
+                    self.stack.pop();
+                }
+                OpCode::DefineGlobal => {
+                    let name = self.read_constant().try_as_string().unwrap();
+                    let value = self.stack.pop();
+                    self.globals.insert(name, value);
+                }
+                OpCode::GetGlobal => {
+                    let name = self.read_constant().try_as_string().unwrap();
+                    if let Some(value) = self.globals.get(&name) {
+                        self.stack.push(value.clone());
+                    } else {
+                        return self.error(RunError::UndefinedVariable((&*name).into()));
+                    }
+                }
+                OpCode::SetGlobal => {
+                    let name = self.read_constant().try_as_string().unwrap();
+                    if let Some(value) = self.globals.get_mut(&name) {
+                        let new_value = self.stack.pop();
+                        *value = new_value;
+                    } else {
+                        return self.error(RunError::UndefinedVariable((&*name).into()));
                     }
                 }
             }

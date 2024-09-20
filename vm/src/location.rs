@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 
 #[derive(Clone, Copy, Debug)]
@@ -56,6 +55,12 @@ impl<T: Display> Display for AtCoords<T> {
 pub enum AtCoordsOrEof<T> {
     AtCoords(AtCoords<T>),
     Eof(T),
+}
+
+impl<T> From<AtCoords<T>> for AtCoordsOrEof<T> {
+    fn from(value: AtCoords<T>) -> Self {
+        Self::AtCoords(value)
+    }
 }
 
 impl<T: Display> Display for AtCoordsOrEof<T> {
