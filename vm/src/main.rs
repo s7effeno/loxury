@@ -7,9 +7,12 @@ fn main() {
     let mut vm = Vm::new(&input).unwrap();
     vm.run().unwrap();*/
 
-    // let mut c = Chunk::new();
-    // println!("{:?}", Compiler::compile("\"ciao\" + 5;", &mut c));
-    // println!("{}", c);
-    let mut vm = Vm::new("var a = 5; var b = 6; a + b = 7;").unwrap();
+    let mut c = Chunk::new();
+    println!(
+        "{:?}",
+        Compiler::compile("var a =  7; var b; b = 6;", &mut c)
+    );
+    println!("{}", c);
+    let mut vm = Vm::new("5 + 7;").unwrap();
     println!("{:?}", vm.run());
 }

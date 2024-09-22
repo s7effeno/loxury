@@ -30,6 +30,11 @@ impl Stack {
         self.count -= 1;
         unsafe { (self.values[self.count as usize]).assume_init_ref() }.clone()
     }
+
+    fn peek(&mut self) -> Value {
+        assert_ne!(self.count, 0);
+        unsafe { (self.values[self.count as usize]).assume_init_ref() }.clone()
+    }
 }
 
 pub struct Vm {
@@ -197,7 +202,7 @@ impl Vm {
                 OpCode::SetGlobal => {
                     let name = self.read_constant().try_as_string().unwrap();
                     if let Some(value) = self.globals.get_mut(&name) {
-                        let new_value = self.stack.pop();
+                        let new_value = self.stack.peek();
                         *value = new_value;
                     } else {
                         return self.error(RunError::UndefinedVariable((&*name).into()));

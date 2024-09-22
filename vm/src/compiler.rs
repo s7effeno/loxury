@@ -5,6 +5,21 @@ use crate::CompileError;
 
 use std::iter::Peekable;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Precedence {
+    None,
+    Assignment,
+    Or,
+    And,
+    Equality,
+    Comparison,
+    Term,
+    Factor,
+    Unary,
+    Call,
+    Primary,
+}
+
 pub struct Compiler<'a> {
     lexer: Peekable<Lexer<'a>>,
     compiling_chunk: &'a mut Chunk,
@@ -13,21 +28,33 @@ pub struct Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
-    pub fn compile(source: &'a str, chunk: &'a mut Chunk) -> Result<(), ()> {
-        let mut compiler = Self {
-            lexer: Lexer::new(source).peekable(),
-            compiling_chunk: chunk,
-            had_error: false,
-            panic_mode: false,
-        };
-        while compiler.peek_token().is_some() {
-            compiler.declaration();
+    fn error(&mut self, error: &AtCoordsOrEof<CompileError>) {
+        if !self.panic_mode {
+            self.panic_mode = true;
+            self.had_error = true;
+            eprintln!("{error}");
         }
-        if !compiler.had_error {
-            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
-            Ok(())
-        } else {
-            Err(())
+    }
+
+    fn synchronize(&mut self) {
+        while let Some(t) = self.peek_token() {
+            match t.kind() {
+                TokenKind::Class
+                | TokenKind::Fun
+                | TokenKind::Var
+                | TokenKind::For
+                | TokenKind::If
+                | TokenKind::While
+                | TokenKind::Print
+                | TokenKind::Return => break,
+                TokenKind::Semicolon => {
+                    self.lexer.next();
+                    break;
+                }
+                _ => {
+                    self.next_token();
+                }
+            }
         }
     }
 
@@ -87,10 +114,6 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.compiling_chunk
-    }
-
     pub fn emit_op(&mut self, op: OpCode, coords: Coords) {
         self.emit_byte(op as u8, coords)
     }
@@ -109,6 +132,28 @@ impl<'a> Compiler<'a> {
         self.emit_bytes(OpCode::Constant as u8, constant, coords);
     }
 
+    pub fn compile(source: &'a str, chunk: &'a mut Chunk) -> Result<(), ()> {
+        let mut compiler = Self {
+            lexer: Lexer::new(source).peekable(),
+            compiling_chunk: chunk,
+            had_error: false,
+            panic_mode: false,
+        };
+        while compiler.peek_token().is_some() {
+            compiler.declaration();
+        }
+        if !compiler.had_error {
+            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn current_chunk(&mut self) -> &mut Chunk {
+        &mut self.compiling_chunk
+    }
+
     fn make_constant(&mut self, value: Value) -> u8 {
         let constant = self.current_chunk().add_constant(value);
         if constant >= u8::MAX as u32 {
@@ -116,14 +161,6 @@ impl<'a> Compiler<'a> {
             0
         } else {
             constant as u8
-        }
-    }
-
-    fn error(&mut self, error: &AtCoordsOrEof<CompileError>) {
-        if !self.panic_mode {
-            self.panic_mode = true;
-            self.had_error = true;
-            eprintln!("{error}");
         }
     }
 
@@ -161,7 +198,6 @@ impl<'a> Compiler<'a> {
 
     fn statement(&mut self) {
         if self.next_token_if_eq(TokenKind::Print).is_some() {
-            println!("statement");
             self.print_statement();
         } else {
             self.expression_statement();
@@ -169,38 +205,12 @@ impl<'a> Compiler<'a> {
     }
 
     fn print_statement(&mut self) {
-        println!("print_statement");
         self.expression();
         if let Some(c) = self
             .consume(TokenKind::Semicolon, CompileError::UnclosedStatement)
             .map(|t| t.coords())
         {
-            println!("print statement ok");
             self.emit_op(OpCode::Print, c)
-        } else {
-            println!("print statement not ok");
-        }
-    }
-
-    fn synchronize(&mut self) {
-        while let Some(t) = self.peek_token() {
-            match t.kind() {
-                TokenKind::Class
-                | TokenKind::Fun
-                | TokenKind::Var
-                | TokenKind::For
-                | TokenKind::If
-                | TokenKind::While
-                | TokenKind::Print
-                | TokenKind::Return => break,
-                TokenKind::Semicolon => {
-                    self.lexer.next();
-                    break;
-                }
-                _ => {
-                    self.next_token();
-                }
-            }
         }
     }
 
@@ -241,10 +251,11 @@ impl<'a> Compiler<'a> {
                     self.infix_rule(&token).unwrap();
                 }
 
-                if let Some(coords) = self.next_token_if_eq(TokenKind::Equal).map(|t| t.coords()) {
-                    if can_assign {
-                        self.error(&coords.locate(CompileError::InvalidAssignmentTarget).into())
-                    }
+                if let Some(coords) = self
+                    .next_token_if(|t| can_assign && t == TokenKind::Equal)
+                    .map(|t| t.coords())
+                {
+                    self.error(&coords.locate(CompileError::InvalidAssignmentTarget).into())
                 }
             } else {
                 self.error(&token.co_locate(CompileError::ExpectedExpression));
@@ -343,8 +354,11 @@ impl<'a> Compiler<'a> {
 
     fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
         let arg = self.identifier_constant(token.span().into());
-        match self.next_token_if_eq(TokenKind::Equal).map(|t| t.coords()) {
-            Some(coords) if can_assign => {
+        match self
+            .next_token_if(|t| can_assign && t == TokenKind::Equal)
+            .map(|t| t.coords())
+        {
+            Some(coords) => {
                 self.expression();
                 self.emit_op(OpCode::SetGlobal, coords);
                 self.emit_byte(arg, coords);
@@ -409,21 +423,6 @@ impl<'a> Compiler<'a> {
             _ => unreachable!(),
         }
     }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum Precedence {
-    None,
-    Assignment,
-    Or,
-    And,
-    Equality,
-    Comparison,
-    Term,
-    Factor,
-    Unary,
-    Call,
-    Primary,
 }
 
 impl Precedence {
