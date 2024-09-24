@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
 struct Stack {
-    values: [MaybeUninit<Value>; 256],
+    values: [MaybeUninit<Value>; u8::MAX as usize + 1],
     count: u8,
 }
 

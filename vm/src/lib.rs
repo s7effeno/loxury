@@ -16,6 +16,9 @@ pub enum CompileError {
     UnclosedStatement,
     ExpectedVariableName,
     InvalidAssignmentTarget,
+    UnclosedBlock,
+    TooManyLocals,
+    VariableRedeclaration(String),
 }
 
 impl Display for CompileError {
@@ -28,6 +31,11 @@ impl Display for CompileError {
             Self::UnclosedStatement => write!(f, "expected ';' at the end of statement"),
             Self::ExpectedVariableName => write!(f, "expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
+            Self::UnclosedBlock => write!(f, "expected '}}' at the end of block"),
+            Self::TooManyLocals => write!(f, "can't have more than 256 local variables"),
+            Self::VariableRedeclaration(v) => {
+                write!(f, "variable {} already declared in this scope", v)
+            }
         }
     }
 }

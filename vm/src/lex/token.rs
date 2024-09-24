@@ -54,12 +54,12 @@ impl<'a> Token<'a> {
     }
 }
 
-impl AtCoords<Token<'_>> {
+impl<'a> AtCoords<Token<'a>> {
     pub fn kind(&self) -> Kind {
         self.value.kind.clone()
     }
 
-    pub fn span(&self) -> &str {
+    pub fn span<'b>(&'b self) -> &'a str {
         self.value.span
     }
 }

@@ -4,6 +4,7 @@ use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::CompileError;
 
 use std::iter::Peekable;
+use std::mem::MaybeUninit;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Precedence {
@@ -20,15 +21,41 @@ enum Precedence {
     Primary,
 }
 
+struct Locals<'a> {
+    locals: [MaybeUninit<(&'a str, Option<usize>)>; u8::MAX as usize + 1],
+    count: usize,
+    scope_depth: usize,
+}
+
+impl<'a> Locals<'a> {
+    pub fn iter<'b>(&'b self) -> impl Iterator<Item = (&'a str, Option<usize>)> + 'b {
+        self.locals
+            .iter()
+            .take(self.count)
+            .map(|l| unsafe { l.assume_init() })
+    }
+}
+
+impl Locals<'_> {
+    fn new() -> Self {
+        Self {
+            locals: unsafe { MaybeUninit::uninit().assume_init() },
+            count: 0,
+            scope_depth: 0,
+        }
+    }
+}
+
 pub struct Compiler<'a> {
     lexer: Peekable<Lexer<'a>>,
     compiling_chunk: &'a mut Chunk,
+    locals: Locals<'a>,
     had_error: bool,
     panic_mode: bool,
 }
 
 impl<'a> Compiler<'a> {
-    fn error(&mut self, error: &AtCoordsOrEof<CompileError>) {
+    fn error<'b>(&'b mut self, error: &AtCoordsOrEof<CompileError>) {
         if !self.panic_mode {
             self.panic_mode = true;
             self.had_error = true;
@@ -97,7 +124,11 @@ impl<'a> Compiler<'a> {
         self.next_token_if(|t| t == kind)
     }
 
-    fn consume(&mut self, kind: TokenKind, error: CompileError) -> Option<AtCoords<Token<'_>>> {
+    fn consume<'b>(
+        &'b mut self,
+        kind: TokenKind,
+        error: CompileError,
+    ) -> Option<AtCoords<Token<'a>>> {
         let peek = self.peek_token();
         if let Some(peek) = peek {
             if peek.kind() == kind {
@@ -138,6 +169,7 @@ impl<'a> Compiler<'a> {
             compiling_chunk: chunk,
             had_error: false,
             panic_mode: false,
+            locals: Locals::new(),
         };
         while compiler.peek_token().is_some() {
             compiler.declaration();
@@ -162,6 +194,14 @@ impl<'a> Compiler<'a> {
         } else {
             constant as u8
         }
+    }
+
+    fn begin_scope(&mut self) {
+        self.locals.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.locals.scope_depth -= 1;
     }
 
     fn expression(&mut self) {
@@ -199,6 +239,10 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.next_token_if_eq(TokenKind::Print).is_some() {
             self.print_statement();
+        } else if self.next_token_if_eq(TokenKind::LeftBrace).is_some() {
+            self.begin_scope();
+            self.block();
+            self.end_scope();
         } else {
             self.expression_statement();
         }
@@ -218,11 +262,48 @@ impl<'a> Compiler<'a> {
         self.make_constant(Value::Object(Object::String(name.into())))
     }
 
+    fn add_local(&mut self, name: AtCoords<Token<'a>>) {
+        if self.locals.count == u8::MAX as usize + 1 {
+            self.error(&name.co_locate(CompileError::TooManyLocals));
+            return;
+        }
+
+        let local = &mut self.locals.locals[self.locals.count];
+        self.locals.count += 1;
+        local.write((name.span(), Some(self.locals.scope_depth)));
+    }
+
+    fn declare_variable(&mut self, name: AtCoords<Token<'a>>) {
+        if self.locals.scope_depth == 0 {
+            return;
+        }
+        let span = name.span().to_owned();
+        for (local_name, depth) in self.locals.iter() {
+            match depth {
+                Some(depth) if depth < self.locals.scope_depth => break,
+                _ => {
+                    if local_name == &span {
+                        self.error(
+                            &name.co_locate(CompileError::VariableRedeclaration(span.clone())),
+                        )
+                    }
+                }
+            }
+        }
+        self.add_local(name);
+    }
+
     fn parse_variable(&mut self, error: CompileError) -> Result<(u8, Coords), ()> {
         if let Some(identifier) = self.consume(TokenKind::Identifier, error) {
-            let span = identifier.span().into();
             let coords = identifier.coords();
-            Ok((self.identifier_constant(span), coords))
+            // `span` should be put inside `else`
+            let span = identifier.span().into();
+            self.declare_variable(identifier);
+            if self.locals.scope_depth > 0 {
+                Ok((0, coords))
+            } else {
+                Ok((self.identifier_constant(span), coords))
+            }
         } else {
             Err(())
         }
@@ -238,7 +319,20 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn block(&mut self) {
+        loop {
+            if let Some(TokenKind::RightBrace) = self.peek_token().map(|t| t.kind()) {
+                break;
+            }
+            self.declaration();
+        }
+        self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
+    }
+
     fn define_variable(&mut self, global: u8, coords: Coords) {
+        if self.locals.scope_depth > 0 {
+            return;
+        }
         self.emit_op(OpCode::DefineGlobal, coords);
         self.emit_byte(global, coords);
     }
