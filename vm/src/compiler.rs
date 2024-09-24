@@ -22,17 +22,28 @@ enum Precedence {
 }
 
 struct Locals<'a> {
+    // Some if initialized, None if uninitialized, to implement self-referential initialization
+    // error
     locals: [MaybeUninit<(&'a str, Option<usize>)>; u8::MAX as usize + 1],
     count: usize,
     scope_depth: usize,
 }
 
 impl<'a> Locals<'a> {
-    pub fn iter<'b>(&'b self) -> impl Iterator<Item = (&'a str, Option<usize>)> + 'b {
+    fn iter<'b>(&'b self) -> impl Iterator<Item = (&'a str, Option<usize>)> + 'b {
         self.locals
             .iter()
             .take(self.count)
             .map(|l| unsafe { l.assume_init() })
+    }
+
+    fn resolve(&self, name: &str) -> Result<u8, ()> {
+        self.iter().position(|(local_name, _)| local_name == name).map(|p| p as u8).ok_or(())
+    }
+
+    fn mark_initialized(&mut self) {
+        assert!(self.count > 0);
+        unsafe { self.locals[self.count - 1].assume_init_mut().1 = Some(self.scope_depth) };
     }
 }
 
@@ -46,23 +57,36 @@ impl Locals<'_> {
     }
 }
 
-pub struct Compiler<'a> {
-    lexer: Peekable<Lexer<'a>>,
-    compiling_chunk: &'a mut Chunk,
-    locals: Locals<'a>,
+struct Errors {
     had_error: bool,
     panic_mode: bool,
 }
 
-impl<'a> Compiler<'a> {
-    fn error<'b>(&'b mut self, error: &AtCoordsOrEof<CompileError>) {
+impl Errors {
+    fn new() -> Self {
+        Self {
+            had_error: false,
+            panic_mode: false,
+        }
+    }
+
+    fn error(&mut self, error: &AtCoordsOrEof<CompileError>) {
         if !self.panic_mode {
             self.panic_mode = true;
             self.had_error = true;
             eprintln!("{error}");
         }
     }
+}
 
+pub struct Compiler<'a> {
+    lexer: Peekable<Lexer<'a>>,
+    compiling_chunk: &'a mut Chunk,
+    locals: Locals<'a>,
+    errors: Errors,
+}
+
+impl<'a> Compiler<'a> {
     fn synchronize(&mut self) {
         while let Some(t) = self.peek_token() {
             match t.kind() {
@@ -90,7 +114,7 @@ impl<'a> Compiler<'a> {
         match next {
             Ok(t) => Some(t),
             Err(e) => {
-                self.error(&e);
+                self.errors.error(&e);
                 self.next_token()
             }
         }
@@ -101,9 +125,7 @@ impl<'a> Compiler<'a> {
         match peek {
             Ok(t) => Some(t.clone()),
             Err(e) => {
-                let e = e.clone();
-                // FIXME: can't figure out lifetimes
-                self.error(&e);
+                self.errors.error(&e);
                 self.lexer.next();
                 self.peek_token()
             }
@@ -136,11 +158,11 @@ impl<'a> Compiler<'a> {
                 self.lexer.next();
                 Some(ret)
             } else {
-                self.error(&peek.co_locate(error));
+                self.errors.error(&peek.co_locate(error));
                 None
             }
         } else {
-            self.error(&AtCoordsOrEof::Eof(error));
+            self.errors.error(&AtCoordsOrEof::Eof(error));
             None
         }
     }
@@ -167,14 +189,13 @@ impl<'a> Compiler<'a> {
         let mut compiler = Self {
             lexer: Lexer::new(source).peekable(),
             compiling_chunk: chunk,
-            had_error: false,
-            panic_mode: false,
             locals: Locals::new(),
+            errors: Errors::new(),
         };
         while compiler.peek_token().is_some() {
             compiler.declaration();
         }
-        if !compiler.had_error {
+        if !compiler.errors.had_error {
             compiler.current_chunk().write_nowhere(OpCode::Return as u8);
             Ok(())
         } else {
@@ -200,11 +221,23 @@ impl<'a> Compiler<'a> {
         self.locals.scope_depth += 1;
     }
 
-    fn end_scope(&mut self) {
+    fn end_scope(&mut self, coords: Coords) {
         self.locals.scope_depth -= 1;
+
+        let count = self.locals.iter().take_while(|(_, depth)| if let Some(depth) = depth {
+            *depth > self.locals.scope_depth
+        } else {
+            false
+        }).count();
+
+        for _ in 0..count {
+            self.emit_op(OpCode::Pop, coords);
+        }
+        self.locals.count -= count;
     }
 
     fn expression(&mut self) {
+        // println!("{:?}", self.peek_token());
         self.parse_precedence(Precedence::Assignment);
     }
 
@@ -231,7 +264,7 @@ impl<'a> Compiler<'a> {
             self.statement();
         }
 
-        if self.panic_mode {
+        if self.errors.panic_mode {
             self.synchronize();
         }
     }
@@ -239,10 +272,10 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.next_token_if_eq(TokenKind::Print).is_some() {
             self.print_statement();
-        } else if self.next_token_if_eq(TokenKind::LeftBrace).is_some() {
+        } else if let Some(coords) = self.next_token_if_eq(TokenKind::LeftBrace).map(|t| t.coords()) {
             self.begin_scope();
             self.block();
-            self.end_scope();
+            self.end_scope(coords);
         } else {
             self.expression_statement();
         }
@@ -264,13 +297,13 @@ impl<'a> Compiler<'a> {
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
         if self.locals.count == u8::MAX as usize + 1 {
-            self.error(&name.co_locate(CompileError::TooManyLocals));
+            self.errors.error(&name.co_locate(CompileError::TooManyLocals));
             return;
         }
 
         let local = &mut self.locals.locals[self.locals.count];
         self.locals.count += 1;
-        local.write((name.span(), Some(self.locals.scope_depth)));
+        local.write((name.span(), None));
     }
 
     fn declare_variable(&mut self, name: AtCoords<Token<'a>>) {
@@ -283,7 +316,7 @@ impl<'a> Compiler<'a> {
                 Some(depth) if depth < self.locals.scope_depth => break,
                 _ => {
                     if local_name == &span {
-                        self.error(
+                        self.errors.error(
                             &name.co_locate(CompileError::VariableRedeclaration(span.clone())),
                         )
                     }
@@ -321,7 +354,7 @@ impl<'a> Compiler<'a> {
 
     fn block(&mut self) {
         loop {
-            if let Some(TokenKind::RightBrace) = self.peek_token().map(|t| t.kind()) {
+            if let Some(TokenKind::RightBrace) | None = self.peek_token().map(|t| t.kind()) {
                 break;
             }
             self.declaration();
@@ -331,6 +364,7 @@ impl<'a> Compiler<'a> {
 
     fn define_variable(&mut self, global: u8, coords: Coords) {
         if self.locals.scope_depth > 0 {
+            self.locals.mark_initialized();
             return;
         }
         self.emit_op(OpCode::DefineGlobal, coords);
@@ -349,13 +383,13 @@ impl<'a> Compiler<'a> {
                     .next_token_if(|t| can_assign && t == TokenKind::Equal)
                     .map(|t| t.coords())
                 {
-                    self.error(&coords.locate(CompileError::InvalidAssignmentTarget).into())
+                    self.errors.error(&coords.locate(CompileError::InvalidAssignmentTarget).into())
                 }
             } else {
-                self.error(&token.co_locate(CompileError::ExpectedExpression));
+                self.errors.error(&token.co_locate(CompileError::ExpectedExpression));
             }
         } else {
-            self.error(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
+            self.errors.error(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
         }
     }
 
@@ -446,19 +480,36 @@ impl<'a> Compiler<'a> {
         )
     }
 
+    fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Result<u8, ()> {
+        self.locals.iter().position(|(local_name, depth)| {
+            if local_name == name.span() {
+                if depth.is_none() {
+                    self.errors.error(&name.co_locate(CompileError::SelfReferencialVariableInitializer(name.span().into())))
+                }
+                true
+            } else {
+                false
+            }
+        }).map(|p| p as u8).ok_or(())
+    }
+
     fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
-        let arg = self.identifier_constant(token.span().into());
+        let (arg, get, set) = match self.resolve_local(token) {
+            Ok(arg) => (arg, OpCode::GetLocal, OpCode::SetLocal),
+            Err(()) => (self.identifier_constant(token.span().into()), OpCode::GetGlobal, OpCode::SetGlobal),
+        };
+        
         match self
             .next_token_if(|t| can_assign && t == TokenKind::Equal)
             .map(|t| t.coords())
         {
             Some(coords) => {
                 self.expression();
-                self.emit_op(OpCode::SetGlobal, coords);
+                self.emit_op(set, coords);
                 self.emit_byte(arg, coords);
             }
             _ => {
-                self.emit_op(OpCode::GetGlobal, token.coords());
+                self.emit_op(get, token.coords());
                 self.emit_byte(arg, token.coords());
             }
         }

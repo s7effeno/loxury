@@ -57,7 +57,7 @@ impl Display for Chunk {
         macro_rules! byte {
             ($op_name:expr) => {{
                 let arg = *bytes.next().unwrap();
-                writeln!(f, "{} {}", $op_name, arg);
+                writeln!(f, "{} {}", $op_name, arg)
             }};
         }
         macro_rules! constant {
@@ -126,6 +126,12 @@ impl Display for Chunk {
                 OpCode::SetGlobal => {
                     constant!("set global")?;
                 }
+                OpCode::GetLocal => {
+                    byte!("get local")?;
+                }
+                OpCode::SetLocal => {
+                    byte!("set local")?;
+                }
             }
         }
         Ok(())
@@ -138,6 +144,8 @@ pub enum OpCode {
     True,
     False,
     Pop,
+    GetLocal,
+    SetLocal,
     GetGlobal,
     DefineGlobal,
     SetGlobal,
@@ -164,20 +172,22 @@ impl TryFrom<u8> for OpCode {
             2 => Ok(Self::True),
             3 => Ok(Self::False),
             4 => Ok(Self::Pop),
-            5 => Ok(Self::GetGlobal),
-            6 => Ok(Self::DefineGlobal),
-            7 => Ok(Self::SetGlobal),
-            8 => Ok(Self::Equal),
-            9 => Ok(Self::Greater),
-            10 => Ok(Self::Less),
-            11 => Ok(Self::Add),
-            12 => Ok(Self::Subtract),
-            13 => Ok(Self::Multiply),
-            14 => Ok(Self::Divide),
-            15 => Ok(Self::Not),
-            16 => Ok(Self::Negate),
-            17 => Ok(Self::Print),
-            18 => Ok(Self::Return),
+            5 => Ok(Self::GetLocal),
+            6 => Ok(Self::SetLocal),
+            7 => Ok(Self::GetGlobal),
+            8 => Ok(Self::DefineGlobal),
+            9 => Ok(Self::SetGlobal),
+            10 => Ok(Self::Equal),
+            11 => Ok(Self::Greater),
+            12 => Ok(Self::Less),
+            13 => Ok(Self::Add),
+            14 => Ok(Self::Subtract),
+            15 => Ok(Self::Multiply),
+            16 => Ok(Self::Divide),
+            17 => Ok(Self::Not),
+            18 => Ok(Self::Negate),
+            19 => Ok(Self::Print),
+            20 => Ok(Self::Return),
             _ => Err(()),
         }
     }

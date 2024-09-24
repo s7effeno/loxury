@@ -31,9 +31,19 @@ impl Stack {
         unsafe { (self.values[self.count as usize]).assume_init_ref() }.clone()
     }
 
-    fn peek(&mut self) -> Value {
+    fn peek(&self) -> Value {
         assert_ne!(self.count, 0);
         unsafe { (self.values[self.count as usize]).assume_init_ref() }.clone()
+    }
+
+    fn get(&mut self, slot: u8) -> Value {
+        assert!(slot < self.count);
+        unsafe { self.values[slot as usize].assume_init_ref() }.clone()
+    }
+
+    fn set(&mut self, slot: u8, value: Value) {
+        // assert!(slot < self.count);
+        self.values[slot as usize].write(value);
     }
 }
 
@@ -207,6 +217,16 @@ impl Vm {
                     } else {
                         return self.error(RunError::UndefinedVariable((&*name).into()));
                     }
+                }
+                OpCode::GetLocal => {
+                    let slot = self.read_byte();
+                    let value = self.stack.get(slot);
+                    self.stack.push(value);
+                }
+                OpCode::SetLocal => {
+                    let slot = self.read_byte();
+                    let value = self.stack.peek();
+                    self.stack.set(slot, value);
                 }
             }
         }

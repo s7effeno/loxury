@@ -19,6 +19,7 @@ pub enum CompileError {
     UnclosedBlock,
     TooManyLocals,
     VariableRedeclaration(String),
+    SelfReferencialVariableInitializer(String),
 }
 
 impl Display for CompileError {
@@ -34,7 +35,10 @@ impl Display for CompileError {
             Self::UnclosedBlock => write!(f, "expected '}}' at the end of block"),
             Self::TooManyLocals => write!(f, "can't have more than 256 local variables"),
             Self::VariableRedeclaration(v) => {
-                write!(f, "variable {} already declared in this scope", v)
+                write!(f, "variable '{}' already declared in this scope", v)
+            }
+            Self::SelfReferencialVariableInitializer(v) => {
+                write!(f, "can't read local variable '{}' in its own initalizer", v)
             }
         }
     }
