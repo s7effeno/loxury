@@ -309,11 +309,11 @@ impl<'a> Compiler<'a> {
             self.if_statement(coords);
         } else if let Some(coords) = self.next_token_if_eq(TokenKind::While).map(|t| t.coords()) {
             self.while_statement(coords);
-        } else if self.next_token_if_eq(TokenKind::LeftBrace).is_some() {
+        } else if let Some(coords) = self.next_token_if_eq(TokenKind::LeftBrace).map(|t| t.coords()) {
             self.begin_scope();
-            if let Ok(end) = self.block() {
-                self.end_scope(end);
-            }
+            // TODO: `end_scope` should be called nonetheless
+            self.block();
+            self.end_scope(coords);
         } else {
             self.expression_statement();
         }
@@ -422,14 +422,14 @@ impl<'a> Compiler<'a> {
         self.patch_jump(end);
     }
 
-    fn block(&mut self) -> Result<Coords, ()> {
+    fn block(&mut self) {
         loop {
             if let Some(TokenKind::RightBrace) | None = self.peek_token().map(|t| t.kind()) {
                 break;
             }
             self.declaration();
         }
-        self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock).map(|t| t.coords()).ok_or(())
+        self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
     }
 
     fn define_variable(&mut self, global: u8, coords: Coords) {
@@ -455,6 +455,8 @@ impl<'a> Compiler<'a> {
                 while let Some(token) = self.next_token_if(|t| precedence <= Self::precedence(t)) {
                     self.infix_rule(&token).unwrap();
                 }
+
+                // println!("stopped at {:?}", self.peek_token());
 
                 if let Some(coords) = self
                     .next_token_if(|t| can_assign && t == TokenKind::Equal)

@@ -9,7 +9,7 @@ fn main() {
 
 
     let mut c = Chunk::new();
-    let a = "var a = 5; while (a > 0) { print a; a = a - 1;}";
+    let a = "print ";
     println!(
         "{:?}",
         Compiler::compile(a, &mut c)
