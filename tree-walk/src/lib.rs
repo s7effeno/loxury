@@ -129,10 +129,10 @@ mod error {
                 Self::InvalidAssignmentTarget => write!(f, "invalid assignment target"),
                 Self::UnclosedBlock => write!(f, "expected '}}' at the end of block"),
                 Self::ExpectedControlLeftParen => {
-                    write!(f, "expected '(' after control statement")
+                    write!(f, "expected '(' after control keyword")
                 }
                 Self::ExpectedControlRightParen => {
-                    write!(f, "expected ')' before control statement body")
+                    write!(f, "expected ')' at the end of control clause")
                 }
                 Self::ExpectedSemicolonAfterForCondition => {
                     write!(f, "expected ';' after for loop condition")
