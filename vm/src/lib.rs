@@ -23,6 +23,7 @@ pub enum CompileError {
     ExpectedControlLeftParen,
     ExpectedControlRightParen,
     JumpTooWide,
+    ExpectedForClauseSeparator,
 }
 
 impl Display for CompileError {
@@ -48,6 +49,7 @@ impl Display for CompileError {
             },
             Self::ExpectedControlRightParen => write!(f, "expected ') after control clause"),
             Self::JumpTooWide => write!(f, "too much code to jump over"),
+            Self::ExpectedForClauseSeparator => write!(f, "expected ';' to separate for clauses")
         }
     }
 }

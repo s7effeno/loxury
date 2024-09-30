@@ -309,6 +309,8 @@ impl<'a> Compiler<'a> {
             self.if_statement(coords);
         } else if let Some(coords) = self.next_token_if_eq(TokenKind::While).map(|t| t.coords()) {
             self.while_statement(coords);
+        } else if let Some(coords) = self.next_token_if_eq(TokenKind::For).map(|t| t.coords()) {
+            self.for_statement(coords);
         } else if let Some(coords) = self.next_token_if_eq(TokenKind::LeftBrace).map(|t| t.coords()) {
             self.begin_scope();
             // TODO: `end_scope` should be called nonetheless
@@ -403,6 +405,25 @@ impl<'a> Compiler<'a> {
         {
             self.emit_op(OpCode::Pop, c);
         }
+    }
+
+    fn for_statement(&mut self, coords: Coords) {
+        self.begin_scope();
+        self.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
+
+        if self.next_token_if_eq(TokenKind::Semicolon).is_some() {
+        } else if self.next_token_if_eq(TokenKind::Var).is_some() {
+            self.var_declaration();
+        } else {
+            self.expression_statement();
+        }
+
+        let start = self.current_chunk().len();
+
+
+        self.emit_loop(start, coords);
+        self.end_scope(coords);
+        // self.consume
     }
 
     fn if_statement(&mut self, coords: Coords) {
