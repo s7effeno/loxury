@@ -1,3 +1,5 @@
+// TODO: automate `emit_...` to avoid passing `coords`
+
 use crate::chunk::{Chunk, Object, OpCode, Value};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
@@ -180,9 +182,41 @@ impl<'a> Compiler<'a> {
         self.current_chunk().write(byte, coords)
     }
 
+    fn emit_loop(&mut self, start: usize, coords: Coords) {
+        self.emit_op(OpCode::Loop, coords);
+
+        let offset = self.current_chunk().len() - start + 2;
+        if offset > u16::MAX as usize {
+            self.errors.error(&coords.locate(CompileError::JumpTooWide).into());
+        }
+
+        self.emit_byte((offset & 0xff00) as u8, coords);
+        self.emit_byte((offset & 0xff) as u8, coords);
+    }
+
+    fn emit_jump(&mut self, op: OpCode, coords: Coords) -> usize {
+        self.emit_op(op, coords);
+        self.emit_byte(0, coords);
+        self.emit_byte(0, coords);
+        self.current_chunk().len() - 2
+    }
+
     fn emit_constant(&mut self, value: Value, coords: Coords) {
         let constant = self.make_constant(value);
         self.emit_bytes(OpCode::Constant as u8, constant, coords);
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.current_chunk().len() - offset - 2;
+
+        if jump > u16::MAX as usize {
+            let index = self.current_chunk().len() - 1;
+            let coords = self.current_chunk().coords(index);
+            self.errors.error(&coords.locate(CompileError::JumpTooWide).into())
+        }
+        
+        *self.current_chunk().at_mut(offset) = (jump & 0xff00) as u8;
+        *self.current_chunk().at_mut(offset + 1) = (jump & 0xff) as u8;
     }
 
     pub fn compile(source: &'a str, chunk: &'a mut Chunk) -> Result<(), ()> {
@@ -237,7 +271,6 @@ impl<'a> Compiler<'a> {
     }
 
     fn expression(&mut self) {
-        // println!("{:?}", self.peek_token());
         self.parse_precedence(Precedence::Assignment);
     }
 
@@ -272,10 +305,15 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.next_token_if_eq(TokenKind::Print).is_some() {
             self.print_statement();
-        } else if let Some(coords) = self.next_token_if_eq(TokenKind::LeftBrace).map(|t| t.coords()) {
+        } else if let Some(coords) = self.next_token_if_eq(TokenKind::If).map(|t| t.coords()) {
+            self.if_statement(coords);
+        } else if let Some(coords) = self.next_token_if_eq(TokenKind::While).map(|t| t.coords()) {
+            self.while_statement(coords);
+        } else if self.next_token_if_eq(TokenKind::LeftBrace).is_some() {
             self.begin_scope();
-            self.block();
-            self.end_scope(coords);
+            if let Ok(end) = self.block() {
+                self.end_scope(end);
+            }
         } else {
             self.expression_statement();
         }
@@ -289,6 +327,21 @@ impl<'a> Compiler<'a> {
         {
             self.emit_op(OpCode::Print, c)
         }
+    }
+
+    fn while_statement(&mut self, coords: Coords) {
+        let start = self.current_chunk().len();
+        self.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
+        self.expression();
+        self.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+
+        let end = self.emit_jump(OpCode::JumpIfFalse, coords);
+        self.emit_op(OpCode::Pop, coords);
+        self.statement();
+        self.emit_loop(start, coords);
+
+        self.patch_jump(end);
+        self.emit_op(OpCode::Pop, coords);
     }
 
     fn identifier_constant(&mut self, name: String) -> u8 {
@@ -352,14 +405,31 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn block(&mut self) {
+    fn if_statement(&mut self, coords: Coords) {
+        self.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
+        self.expression();
+        self.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+
+        let else_branch = self.emit_jump(OpCode::JumpIfFalse, coords);
+        self.statement();
+        let end = self.emit_jump(OpCode::Jump, coords);
+        self.patch_jump(else_branch);
+        self.emit_op(OpCode::Pop, coords);
+
+        if self.next_token_if_eq(TokenKind::Else).is_some() {
+            self.statement();
+        }
+        self.patch_jump(end);
+    }
+
+    fn block(&mut self) -> Result<Coords, ()> {
         loop {
             if let Some(TokenKind::RightBrace) | None = self.peek_token().map(|t| t.kind()) {
                 break;
             }
             self.declaration();
         }
-        self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
+        self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock).map(|t| t.coords()).ok_or(())
     }
 
     fn define_variable(&mut self, global: u8, coords: Coords) {
@@ -369,6 +439,13 @@ impl<'a> Compiler<'a> {
         }
         self.emit_op(OpCode::DefineGlobal, coords);
         self.emit_byte(global, coords);
+    }
+
+    fn and(&mut self, token: &AtCoords<Token>) {
+        let end = self.emit_jump(OpCode::JumpIfFalse, token.coords());
+        self.emit_op(OpCode::Pop, token.coords());
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(end);
     }
 
     fn parse_precedence<'b>(&'b mut self, precedence: Precedence) {
@@ -421,6 +498,8 @@ impl<'a> Compiler<'a> {
             TokenKind::GreaterEqual => self.binary(token),
             TokenKind::Less => self.binary(token),
             TokenKind::LessEqual => self.binary(token),
+            TokenKind::And => self.and(token),
+            TokenKind::Or => self.or(token),
             _ => return None,
         };
         Some(())
@@ -471,6 +550,15 @@ impl<'a> Compiler<'a> {
 
     fn number(&mut self, token: &AtCoords<Token<'_>>) {
         self.emit_constant(Value::Number(token.span().parse().unwrap()), token.coords());
+    }
+
+    fn or(&mut self, token: &AtCoords<Token<'_>>) {
+        let else_branch = self.emit_jump(OpCode::JumpIfFalse, token.coords());
+        let end = self.emit_jump(OpCode::Jump, token.coords());
+        self.patch_jump(else_branch);
+        self.emit_op(OpCode::Pop, token.coords());
+        self.parse_precedence(Precedence::Or);
+        self.patch_jump(end);
     }
 
     fn string(&mut self, token: &AtCoords<Token<'_>>) {

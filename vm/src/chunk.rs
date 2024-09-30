@@ -19,8 +19,16 @@ impl Chunk {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.code.len()
+    }
+
     pub fn byte_at(&self, index: usize) -> u8 {
         self.code[index]
+    }
+
+    pub fn at_mut(&mut self, index: usize) -> & mut u8 {
+        &mut self.code[index]
     }
 
     pub fn write(&mut self, byte: u8, coords: Coords) {
@@ -48,7 +56,7 @@ impl Chunk {
 
 impl Display for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut bytes = self.code.iter();
+        let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {
                 writeln!(f, "{}", $op_name)
@@ -56,18 +64,26 @@ impl Display for Chunk {
         }
         macro_rules! byte {
             ($op_name:expr) => {{
-                let arg = *bytes.next().unwrap();
+                let arg = *bytes.next().unwrap().1;
                 writeln!(f, "{} {}", $op_name, arg)
             }};
         }
         macro_rules! constant {
             ($op_name:expr) => {{
-                let index = *bytes.next().unwrap() as usize;
+                let index = *bytes.next().unwrap().1 as usize;
                 let arg = &self.constants[index];
-                writeln!(f, "{} {}", $op_name, arg)
+                writeln!(f, "{} {} {}", $op_name, index, arg)
             }};
         }
-        while let Some(&b) = bytes.next() {
+        macro_rules! jump {
+            ($op_name:expr, $addr:expr, $sign:tt) => {{
+                let offset = u16::from_be_bytes([*bytes.next().unwrap().1, *bytes.next().unwrap().1]);
+                let destination = $addr + 3 $sign offset as usize;
+                writeln!(f, "{} {} -> {}", $op_name, offset, destination)
+            }};
+        }
+        while let Some((addr, &b)) = bytes.next() {
+            write!(f, "{} ", addr)?;
             match b.try_into().unwrap() {
                 OpCode::Constant => {
                     constant!("constant")?;
@@ -123,7 +139,7 @@ impl Display for Chunk {
                 OpCode::GetGlobal => {
                     constant!("get global")?;
                 }
-                OpCode::SetGlobal => {
+                    OpCode::SetGlobal => {
                     constant!("set global")?;
                 }
                 OpCode::GetLocal => {
@@ -131,6 +147,15 @@ impl Display for Chunk {
                 }
                 OpCode::SetLocal => {
                     byte!("set local")?;
+                }
+                OpCode::JumpIfFalse => {
+                    jump!("jump if false", addr, +)?;
+                }
+                OpCode::Jump => {
+                    jump!("jump", addr, +)?;
+                }
+                OpCode::Loop => {
+                    jump!("loop", addr, -)?;
                 }
             }
         }
@@ -159,6 +184,9 @@ pub enum OpCode {
     Not,
     Negate,
     Print,
+    Jump,
+    JumpIfFalse,
+    Loop,
     Return,
 }
 
@@ -187,7 +215,10 @@ impl TryFrom<u8> for OpCode {
             17 => Ok(Self::Not),
             18 => Ok(Self::Negate),
             19 => Ok(Self::Print),
-            20 => Ok(Self::Return),
+            20 => Ok(Self::Jump),
+            21 => Ok(Self::JumpIfFalse),
+            22 => Ok(Self::Loop),
+            23 => Ok(Self::Return),
             _ => Err(()),
         }
     }

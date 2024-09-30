@@ -33,7 +33,7 @@ impl Stack {
 
     fn peek(&self) -> Value {
         assert_ne!(self.count, 0);
-        unsafe { (self.values[self.count as usize]).assume_init_ref() }.clone()
+        unsafe { (self.values[(self.count - 1) as usize]).assume_init_ref() }.clone()
     }
 
     fn get(&mut self, slot: u8) -> Value {
@@ -80,6 +80,14 @@ impl Vm {
     fn read_constant(&mut self) -> Value {
         let byte = self.read_byte();
         self.chunk.get_constant(byte).clone()
+    }
+
+    fn is_falsey(value: Value) -> bool {
+        match value {
+            Value::Nil => true,
+            Value::Bool(b) => !b,
+            _ => false,
+        }
     }
 
     pub fn run(&mut self) -> Result<(), AtCoords<RunError>> {
@@ -153,14 +161,7 @@ impl Vm {
                     self.stack.push(Value::Bool(false));
                 }
                 OpCode::Not => {
-                    fn is_falsey(value: Value) -> bool {
-                        match value {
-                            Value::Nil => true,
-                            Value::Bool(b) => !b,
-                            _ => false,
-                        }
-                    }
-                    let value = is_falsey(self.stack.pop());
+                    let value = Self::is_falsey(self.stack.pop());
                     self.stack.push(Value::Bool(value));
                 }
                 OpCode::Equal => {
@@ -227,6 +228,20 @@ impl Vm {
                     let slot = self.read_byte();
                     let value = self.stack.peek();
                     self.stack.set(slot, value);
+                }
+                OpCode::JumpIfFalse => {
+                    let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
+                    if Self::is_falsey(self.stack.peek()) {
+                        self.ip += offset as usize;
+                    }
+                }
+                OpCode::Jump => {
+                    let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
+                    self.ip += offset as usize;
+                }
+                OpCode::Loop => {
+                    let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
+                    self.ip -= offset as usize;
                 }
             }
         }

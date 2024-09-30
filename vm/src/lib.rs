@@ -20,6 +20,9 @@ pub enum CompileError {
     TooManyLocals,
     VariableRedeclaration(String),
     SelfReferencialVariableInitializer(String),
+    ExpectedControlLeftParen,
+    ExpectedControlRightParen,
+    JumpTooWide,
 }
 
 impl Display for CompileError {
@@ -40,6 +43,11 @@ impl Display for CompileError {
             Self::SelfReferencialVariableInitializer(v) => {
                 write!(f, "can't read local variable '{}' in its own initalizer", v)
             }
+            Self::ExpectedControlLeftParen => {
+                write!(f, "expected '(' after control keyword")
+            },
+            Self::ExpectedControlRightParen => write!(f, "expected ') after control clause"),
+            Self::JumpTooWide => write!(f, "too much code to jump over"),
         }
     }
 }

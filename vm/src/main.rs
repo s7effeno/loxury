@@ -9,12 +9,13 @@ fn main() {
 
 
     let mut c = Chunk::new();
+    let a = "var a = 5; while (a > 0) { print a; a = a - 1;}";
     println!(
         "{:?}",
-        Compiler::compile("{var a =  7; {var b = 9;}}", &mut c)
+        Compiler::compile(a, &mut c)
     );
     println!("{}", c);
     println!("compilation done");
-    let mut vm = Vm::new("{ var a = a }").unwrap();
+    let mut vm = Vm::new(a).unwrap();
     println!("{:?}", vm.run());
 }
