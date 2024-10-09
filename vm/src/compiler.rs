@@ -72,11 +72,15 @@ impl Errors {
         }
     }
 
-    fn error(&mut self, error: &AtCoordsOrEof<CompileError>) {
+    fn report(&mut self, error: &AtCoordsOrEof<CompileError>) {
+        self.had_error = true;
+        eprintln!("{error}");
+    }
+
+    fn sync(&mut self, error: &AtCoordsOrEof<CompileError>) {
         if !self.panic_mode {
             self.panic_mode = true;
-            self.had_error = true;
-            eprintln!("{error}");
+            self.report(error);
         }
     }
 }
@@ -116,7 +120,7 @@ impl<'a> Compiler<'a> {
         match next {
             Ok(t) => Some(t),
             Err(e) => {
-                self.errors.error(&e);
+                self.errors.sync(&e);
                 self.next_token()
             }
         }
@@ -127,7 +131,7 @@ impl<'a> Compiler<'a> {
         match peek {
             Ok(t) => Some(t.clone()),
             Err(e) => {
-                self.errors.error(&e);
+                self.errors.sync(&e);
                 self.lexer.next();
                 self.peek_token()
             }
@@ -160,11 +164,11 @@ impl<'a> Compiler<'a> {
                 self.lexer.next();
                 Some(ret)
             } else {
-                self.errors.error(&peek.co_locate(error));
+                self.errors.sync(&peek.co_locate(error));
                 None
             }
         } else {
-            self.errors.error(&AtCoordsOrEof::Eof(error));
+            self.errors.sync(&AtCoordsOrEof::Eof(error));
             None
         }
     }
@@ -187,7 +191,7 @@ impl<'a> Compiler<'a> {
 
         let offset = self.current_chunk().len() - start + 2;
         if offset > u16::MAX as usize {
-            self.errors.error(&coords.locate(CompileError::JumpTooWide).into());
+            self.errors.sync(&coords.locate(CompileError::JumpTooWide).into());
         }
 
         self.emit_byte((offset & 0xff00) as u8, coords);
@@ -212,7 +216,7 @@ impl<'a> Compiler<'a> {
         if jump > u16::MAX as usize {
             let index = self.current_chunk().len() - 1;
             let coords = self.current_chunk().coords(index);
-            self.errors.error(&coords.locate(CompileError::JumpTooWide).into())
+            self.errors.sync(&coords.locate(CompileError::JumpTooWide).into())
         }
         
         *self.current_chunk().at_mut(offset) = (jump & 0xff00) as u8;
@@ -352,7 +356,7 @@ impl<'a> Compiler<'a> {
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
         if self.locals.count == u8::MAX as usize + 1 {
-            self.errors.error(&name.co_locate(CompileError::TooManyLocals));
+            self.errors.sync(&name.co_locate(CompileError::TooManyLocals));
             return;
         }
 
@@ -371,7 +375,7 @@ impl<'a> Compiler<'a> {
                 Some(depth) if depth < self.locals.scope_depth => break,
                 _ => {
                     if local_name == &span {
-                        self.errors.error(
+                        self.errors.sync(
                             &name.co_locate(CompileError::VariableRedeclaration(span.clone())),
                         )
                     }
@@ -470,9 +474,10 @@ impl<'a> Compiler<'a> {
     }
 
     fn parse_precedence<'b>(&'b mut self, precedence: Precedence) {
-        if let Some(token) = self.next_token() {
+        if let Some(token) = self.peek_token() {
             let can_assign = precedence <= Precedence::Assignment;
             if self.prefix_rule(&token, can_assign).is_some() {
+                self.next_token();
                 while let Some(token) = self.next_token_if(|t| precedence <= Self::precedence(t)) {
                     self.infix_rule(&token).unwrap();
                 }
@@ -483,13 +488,14 @@ impl<'a> Compiler<'a> {
                     .next_token_if(|t| can_assign && t == TokenKind::Equal)
                     .map(|t| t.coords())
                 {
-                    self.errors.error(&coords.locate(CompileError::InvalidAssignmentTarget).into())
+                    self.expression();
+                    self.errors.report(&coords.locate(CompileError::InvalidAssignmentTarget).into());
                 }
             } else {
-                self.errors.error(&token.co_locate(CompileError::ExpectedExpression));
+                self.errors.report(&token.co_locate(CompileError::ExpectedExpression).into());
             }
         } else {
-            self.errors.error(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
+            self.errors.sync(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
         }
     }
 
@@ -595,7 +601,7 @@ impl<'a> Compiler<'a> {
         self.locals.iter().position(|(local_name, depth)| {
             if local_name == name.span() {
                 if depth.is_none() {
-                    self.errors.error(&name.co_locate(CompileError::SelfReferencialVariableInitializer(name.span().into())))
+                    self.errors.sync(&name.co_locate(CompileError::SelfReferencialVariableInitializer(name.span().into())))
                 }
                 true
             } else {
