@@ -40,7 +40,10 @@ impl<'a> Locals<'a> {
     }
 
     fn resolve(&self, name: &str) -> Result<u8, ()> {
-        self.iter().position(|(local_name, _)| local_name == name).map(|p| p as u8).ok_or(())
+        self.iter()
+            .position(|(local_name, _)| local_name == name)
+            .map(|p| p as u8)
+            .ok_or(())
     }
 
     fn mark_initialized(&mut self) {
@@ -191,7 +194,8 @@ impl<'a> Compiler<'a> {
 
         let offset = self.current_chunk().len() - start + 2;
         if offset > u16::MAX as usize {
-            self.errors.sync(&coords.locate(CompileError::JumpTooWide).into());
+            self.errors
+                .sync(&coords.locate(CompileError::JumpTooWide).into());
         }
 
         self.emit_byte((offset & 0xff00) as u8, coords);
@@ -216,9 +220,10 @@ impl<'a> Compiler<'a> {
         if jump > u16::MAX as usize {
             let index = self.current_chunk().len() - 1;
             let coords = self.current_chunk().coords(index);
-            self.errors.sync(&coords.locate(CompileError::JumpTooWide).into())
+            self.errors
+                .sync(&coords.locate(CompileError::JumpTooWide).into())
         }
-        
+
         *self.current_chunk().at_mut(offset) = (jump & 0xff00) as u8;
         *self.current_chunk().at_mut(offset + 1) = (jump & 0xff) as u8;
     }
@@ -262,11 +267,17 @@ impl<'a> Compiler<'a> {
     fn end_scope(&mut self, coords: Coords) {
         self.locals.scope_depth -= 1;
 
-        let count = self.locals.iter().take_while(|(_, depth)| if let Some(depth) = depth {
-            *depth > self.locals.scope_depth
-        } else {
-            false
-        }).count();
+        let count = self
+            .locals
+            .iter()
+            .take_while(|(_, depth)| {
+                if let Some(depth) = depth {
+                    *depth > self.locals.scope_depth
+                } else {
+                    false
+                }
+            })
+            .count();
 
         for _ in 0..count {
             self.emit_op(OpCode::Pop, coords);
@@ -315,7 +326,10 @@ impl<'a> Compiler<'a> {
             self.while_statement(coords);
         } else if let Some(coords) = self.next_token_if_eq(TokenKind::For).map(|t| t.coords()) {
             self.for_statement(coords);
-        } else if let Some(coords) = self.next_token_if_eq(TokenKind::LeftBrace).map(|t| t.coords()) {
+        } else if let Some(coords) = self
+            .next_token_if_eq(TokenKind::LeftBrace)
+            .map(|t| t.coords())
+        {
             self.begin_scope();
             // TODO: `end_scope` should be called nonetheless
             self.block();
@@ -339,7 +353,10 @@ impl<'a> Compiler<'a> {
         let start = self.current_chunk().len();
         self.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
         self.expression();
-        self.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+        self.consume(
+            TokenKind::RightParen,
+            CompileError::ExpectedControlRightParen,
+        );
 
         let end = self.emit_jump(OpCode::JumpIfFalse, coords);
         self.emit_op(OpCode::Pop, coords);
@@ -356,7 +373,8 @@ impl<'a> Compiler<'a> {
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
         if self.locals.count == u8::MAX as usize + 1 {
-            self.errors.sync(&name.co_locate(CompileError::TooManyLocals));
+            self.errors
+                .sync(&name.co_locate(CompileError::TooManyLocals));
             return;
         }
 
@@ -426,8 +444,11 @@ impl<'a> Compiler<'a> {
         let exit = if self.next_token_if_eq(TokenKind::Semicolon).is_none() {
             self.expression();
             // FIXME: error not ideal
-            if let Some(coords) = self.consume(TokenKind::Semicolon, CompileError::UnclosedStatement).map(|t| t.coords()) {
-                let jump =self.emit_jump(OpCode::JumpIfFalse, coords);
+            if let Some(coords) = self
+                .consume(TokenKind::Semicolon, CompileError::UnclosedStatement)
+                .map(|t| t.coords())
+            {
+                let jump = self.emit_jump(OpCode::JumpIfFalse, coords);
                 self.emit_op(OpCode::Pop, coords);
                 Some((coords, jump))
             } else {
@@ -447,12 +468,15 @@ impl<'a> Compiler<'a> {
                 loop_start = increment_start;
                 self.patch_jump(body_jump);
             }
-            self.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+            self.consume(
+                TokenKind::RightParen,
+                CompileError::ExpectedControlRightParen,
+            );
         }
 
         self.statement();
         self.emit_loop(loop_start, coords);
-        
+
         if let Some((coords, jump)) = exit {
             self.patch_jump(jump);
             self.emit_op(OpCode::Pop, coords);
@@ -464,7 +488,10 @@ impl<'a> Compiler<'a> {
     fn if_statement(&mut self, coords: Coords) {
         self.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
         self.expression();
-        self.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+        self.consume(
+            TokenKind::RightParen,
+            CompileError::ExpectedControlRightParen,
+        );
 
         let else_branch = self.emit_jump(OpCode::JumpIfFalse, coords);
         self.statement();
@@ -508,39 +535,66 @@ impl<'a> Compiler<'a> {
         if let Some(token) = self.peek_token() {
             let can_assign = precedence <= Precedence::Assignment;
             if self.prefix_rule(&token, can_assign).is_some() {
-                self.next_token();
                 while let Some(token) = self.next_token_if(|t| precedence <= Self::precedence(t)) {
                     self.infix_rule(&token).unwrap();
                 }
-
-                // println!("stopped at {:?}", self.peek_token());
 
                 if let Some(coords) = self
                     .next_token_if(|t| can_assign && t == TokenKind::Equal)
                     .map(|t| t.coords())
                 {
                     self.expression();
-                    self.errors.report(&coords.locate(CompileError::InvalidAssignmentTarget).into());
+                    self.errors
+                        .report(&coords.locate(CompileError::InvalidAssignmentTarget).into());
                 }
             } else {
-                self.errors.report(&token.co_locate(CompileError::ExpectedExpression).into());
+                self.errors
+                    .report(&token.co_locate(CompileError::ExpectedExpression).into());
             }
         } else {
-            self.errors.sync(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
+            self.errors
+                .sync(&AtCoordsOrEof::Eof(CompileError::ExpectedExpression));
         }
     }
 
     fn prefix_rule<'b>(&'b mut self, token: &AtCoords<Token<'a>>, can_assign: bool) -> Option<()> {
         match token.kind() {
-            TokenKind::LeftParen => self.grouping(token),
-            TokenKind::Minus => self.unary(token),
-            TokenKind::Number => self.number(token),
-            TokenKind::False => self.literal(token),
-            TokenKind::True => self.literal(token),
-            TokenKind::Nil => self.literal(token),
-            TokenKind::Bang => self.unary(token),
-            TokenKind::String => self.string(token),
-            TokenKind::Identifier => self.variable(token, can_assign),
+            TokenKind::LeftParen => {
+                self.next_token();
+                self.grouping(token)
+            }
+            TokenKind::Minus => {
+                self.next_token();
+                self.unary(token)
+            }
+            TokenKind::Number => {
+                self.next_token();
+                self.number(token)
+            }
+            TokenKind::False => {
+                self.next_token();
+                self.literal(token)
+            }
+            TokenKind::True => {
+                self.next_token();
+                self.literal(token)
+            }
+            TokenKind::Nil => {
+                self.next_token();
+                self.literal(token)
+            }
+            TokenKind::Bang => {
+                self.next_token();
+                self.unary(token)
+            }
+            TokenKind::String => {
+                self.next_token();
+                self.string(token)
+            }
+            TokenKind::Identifier => {
+                self.next_token();
+                self.variable(token, can_assign)
+            }
             _ => return None,
         };
         Some(())
@@ -629,24 +683,34 @@ impl<'a> Compiler<'a> {
     }
 
     fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Result<u8, ()> {
-        self.locals.iter().position(|(local_name, depth)| {
-            if local_name == name.span() {
-                if depth.is_none() {
-                    self.errors.sync(&name.co_locate(CompileError::SelfReferencialVariableInitializer(name.span().into())))
+        self.locals
+            .iter()
+            .position(|(local_name, depth)| {
+                if local_name == name.span() {
+                    if depth.is_none() {
+                        self.errors.sync(&name.co_locate(
+                            CompileError::SelfReferencialVariableInitializer(name.span().into()),
+                        ))
+                    }
+                    true
+                } else {
+                    false
                 }
-                true
-            } else {
-                false
-            }
-        }).map(|p| p as u8).ok_or(())
+            })
+            .map(|p| p as u8)
+            .ok_or(())
     }
 
     fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
         let (arg, get, set) = match self.resolve_local(token) {
             Ok(arg) => (arg, OpCode::GetLocal, OpCode::SetLocal),
-            Err(()) => (self.identifier_constant(token.span().into()), OpCode::GetGlobal, OpCode::SetGlobal),
+            Err(()) => (
+                self.identifier_constant(token.span().into()),
+                OpCode::GetGlobal,
+                OpCode::SetGlobal,
+            ),
         };
-        
+
         match self
             .next_token_if(|t| can_assign && t == TokenKind::Equal)
             .map(|t| t.coords())

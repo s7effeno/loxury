@@ -46,10 +46,10 @@ impl Display for CompileError {
             }
             Self::ExpectedControlLeftParen => {
                 write!(f, "expected '(' after control keyword")
-            },
+            }
             Self::ExpectedControlRightParen => write!(f, "expected ') after control clause"),
             Self::JumpTooWide => write!(f, "too much code to jump over"),
-            Self::ExpectedForClauseSeparator => write!(f, "expected ';' to separate for clauses")
+            Self::ExpectedForClauseSeparator => write!(f, "expected ';' to separate for clauses"),
         }
     }
 }

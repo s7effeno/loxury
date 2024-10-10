@@ -27,7 +27,7 @@ impl Chunk {
         self.code[index]
     }
 
-    pub fn at_mut(&mut self, index: usize) -> & mut u8 {
+    pub fn at_mut(&mut self, index: usize) -> &mut u8 {
         &mut self.code[index]
     }
 
@@ -139,7 +139,7 @@ impl Display for Chunk {
                 OpCode::GetGlobal => {
                     constant!("get global")?;
                 }
-                    OpCode::SetGlobal => {
+                OpCode::SetGlobal => {
                     constant!("set global")?;
                 }
                 OpCode::GetLocal => {
