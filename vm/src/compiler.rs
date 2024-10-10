@@ -422,12 +422,43 @@ impl<'a> Compiler<'a> {
             self.expression_statement();
         }
 
-        let start = self.current_chunk().len();
+        let mut loop_start = self.current_chunk().len();
+        let exit = if self.next_token_if_eq(TokenKind::Semicolon).is_none() {
+            self.expression();
+            // FIXME: error not ideal
+            if let Some(coords) = self.consume(TokenKind::Semicolon, CompileError::UnclosedStatement).map(|t| t.coords()) {
+                let jump =self.emit_jump(OpCode::JumpIfFalse, coords);
+                self.emit_op(OpCode::Pop, coords);
+                Some((coords, jump))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
+        if self.next_token_if_eq(TokenKind::RightParen).is_none() {
+            if let Some(coords) = self.peek_token().map(|t| t.coords()) {
+                let body_jump = self.emit_jump(OpCode::Jump, coords);
+                let increment_start = self.current_chunk().len();
+                self.expression();
+                self.emit_op(OpCode::Pop, coords);
+                self.emit_loop(loop_start, coords);
+                loop_start = increment_start;
+                self.patch_jump(body_jump);
+            }
+            self.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+        }
 
-        self.emit_loop(start, coords);
+        self.statement();
+        self.emit_loop(loop_start, coords);
+        
+        if let Some((coords, jump)) = exit {
+            self.patch_jump(jump);
+            self.emit_op(OpCode::Pop, coords);
+        }
+
         self.end_scope(coords);
-        // self.consume
     }
 
     fn if_statement(&mut self, coords: Coords) {

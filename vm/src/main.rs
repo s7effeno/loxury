@@ -9,7 +9,7 @@ fn main() {
 
 
     let mut c = Chunk::new();
-    let a = "if (1 *) )";
+    let a = "var i; i = 1;";
     println!(
         "{:?}",
         Compiler::compile(a, &mut c)
