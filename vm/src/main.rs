@@ -8,7 +8,7 @@ fn main() {
     vm.run().unwrap();*/
 
     let mut c = Chunk::new();
-    let a = "var i = 0; var j = 0; for (i = 0; i < 10; i = i + 1) { for (j = 0; j <= 10; j = j + 1) { print j; } } ";
+    let a = "for (var i = 0; i < 10; i = i + 1) for (var j = 0; j < i; j = j + 1) print j;";
     println!("{:?}", Compiler::compile(a, &mut c));
     println!("{}", c);
     println!("compilation done");

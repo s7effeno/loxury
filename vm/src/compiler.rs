@@ -36,13 +36,21 @@ impl<'a> Locals<'a> {
         self.locals
             .iter()
             .take(self.count)
+            .rev()
             .map(|l| unsafe { l.assume_init() })
     }
 
-    fn resolve(&self, name: &str) -> Result<u8, ()> {
+    fn resolve(&self, name: &str) -> Result<Option<u8>, ()> {
         self.iter()
-            .position(|(local_name, _)| local_name == name)
-            .map(|p| p as u8)
+            .enumerate()
+            .find(|(_, (local, _))| local == &name)
+            .map(|(p, (_, depth))| {
+                if depth.is_none() {
+                    None
+                } else {
+                    Some(self.count as u8 - 1 - p as u8)
+                }
+            })
             .ok_or(())
     }
 
@@ -683,22 +691,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Result<u8, ()> {
-        self.locals
-            .iter()
-            .position(|(local_name, depth)| {
-                if local_name == name.span() {
-                    if depth.is_none() {
-                        self.errors.sync(&name.co_locate(
-                            CompileError::SelfReferencialVariableInitializer(name.span().into()),
-                        ))
-                    }
-                    true
-                } else {
-                    false
-                }
-            })
-            .map(|p| p as u8)
-            .ok_or(())
+        self.locals.resolve(name.span()).map(|p| match p {
+            Some(p) => p as u8,
+            None => {
+                self.errors.sync(&name.co_locate(
+                CompileError::SelfReferencialVariableInitializer(name.span().into()),
+            ));
+                // error anyway
+                0}
+        })
     }
 
     fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
