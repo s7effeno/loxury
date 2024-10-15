@@ -3,6 +3,7 @@ pub mod compiler;
 mod lex;
 mod location;
 pub mod vm;
+mod gc;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};

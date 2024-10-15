@@ -1,7 +1,7 @@
-use gc::{Finalize, Gc, Trace};
 use std::fmt::{self, Display};
 
 use crate::location::Coords;
+use crate::gc::Gc;
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -229,21 +229,17 @@ pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    Object(Object),
+    String(Gc),
+    Function(Gc),
 }
 
 impl Value {
-    pub fn try_as_string(&self) -> Result<Gc<String>, ()> {
-        match self {
-            Self::Object(o) => Ok(o.try_as_string()?),
-            _ => Err(()),
+    pub fn try_as_string(&self) -> Result<Gc, ()> {
+        if let Self::String(v) = self {
+            Ok(*v)
+        } else {
+            Err(())
         }
-    }
-}
-
-impl From<Object> for Value {
-    fn from(value: Object) -> Self {
-        Self::Object(value)
     }
 }
 
@@ -253,29 +249,22 @@ impl Display for Value {
             Value::Nil => write!(f, "nil"),
             Value::Bool(v) => write!(f, "{v}"),
             Value::Number(v) => write!(f, "{v}"),
-            Value::Object(v) => write!(f, "{v}"),
+            // FIXME: this must be implemented in the vm
+            Value::String(v) => write!(f, "{}", todo!()),
+            Value::Function(v) => write!(f, "{}", todo!()),
         }
     }
 }
 
-#[derive(Clone, Debug, Trace, Finalize)]
-pub enum Object {
-    String(Gc<String>),
+#[derive(Debug)]
+struct Function {
+    arity: u8,
+    chunk: Chunk,
+    name: Gc,
 }
 
-impl Object {
-    fn try_as_string(&self) -> Result<Gc<String>, ()> {
-        match self {
-            Self::String(s) => Ok(s.clone()),
-            _ => Err(()),
-        }
-    }
-}
-
-impl Display for Object {
+impl Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::String(s) => write!(f, "{}", s),
-        }
+        write!(f, "<fn {}>", todo!())
     }
 }

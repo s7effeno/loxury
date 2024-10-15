@@ -1,6 +1,6 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 
-use crate::chunk::{Chunk, Object, OpCode, Value};
+use crate::chunk::{Chunk, OpCode, Value};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::CompileError;

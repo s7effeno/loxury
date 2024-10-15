@@ -1,8 +1,8 @@
-use crate::chunk::{Chunk, Object, OpCode, Value};
+use crate::chunk::{Chunk, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::location::AtCoords;
 use crate::RunError;
-use gc::Gc;
+use crate::gc::{Gc, Manager};
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
@@ -51,7 +51,9 @@ pub struct Vm {
     chunk: Chunk,
     ip: usize,
     stack: Stack,
-    globals: HashMap<Gc<String>, Value>,
+    // name -> value
+    globals: HashMap<Gc, Value>,
+    objects: Manager,
 }
 
 impl Vm {
@@ -64,6 +66,7 @@ impl Vm {
             ip: 0,
             stack: Stack::new(),
             globals: HashMap::new(),
+            objects: Manager::new(),
         })
     }
 
@@ -108,12 +111,9 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a + b))
                         }
-                        (Value::Object(a), Value::Object(b)) => match (&a, &b) {
-                            (Object::String(a), Object::String(b)) => self
+                        (Value::String(a), Value::String(b)) => self
                                 .stack
-                                .push(Object::String((a.to_string() + &*b).into()).into()),
-                            _ => return self.error(RunError::ExpectedNumbersOrStrings),
-                        },
+                                .push(Value::String(self.objects.new_string(self.objects.get_string(a).to_owned() + self.objects.get_string(b)))),
                         _ => return self.error(RunError::ExpectedNumbersOrStrings),
                     }
                 }
@@ -207,7 +207,7 @@ impl Vm {
                     if let Some(value) = self.globals.get(&name) {
                         self.stack.push(value.clone());
                     } else {
-                        return self.error(RunError::UndefinedVariable((&*name).into()));
+                        return self.error(RunError::UndefinedVariable(self.objects.get_string(name).into()));
                     }
                 }
                 OpCode::SetGlobal => {
@@ -216,7 +216,7 @@ impl Vm {
                         let new_value = self.stack.peek();
                         *value = new_value;
                     } else {
-                        return self.error(RunError::UndefinedVariable((&*name).into()));
+                        return self.error(RunError::UndefinedVariable(self.objects.get_string(name).into()));
                     }
                 }
                 OpCode::GetLocal => {
