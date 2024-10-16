@@ -48,21 +48,21 @@ impl Stack {
 }
 
 pub struct Vm {
-    chunk: Chunk,
     ip: usize,
     stack: Stack,
     // name -> value
     globals: HashMap<Gc, Value>,
     objects: Manager,
+    function: Gc,
 }
 
 impl Vm {
     pub fn new(source: &str) -> Result<Self, ()> {
         // TODO: compile in a separate phase
-        let mut chunk = Chunk::new();
-        Compiler::compile(source, &mut chunk)?;
+        let mut objects = Manager::new();
+        let function = Compiler::compile(source, &mut objects)?;
+        function.asdf;
         Ok(Self {
-            chunk,
             ip: 0,
             stack: Stack::new(),
             globals: HashMap::new(),

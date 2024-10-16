@@ -1,6 +1,7 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 
 use crate::chunk::{Chunk, OpCode, Value};
+use crate::gc::{Gc, Manager};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::CompileError;
@@ -98,12 +99,34 @@ impl Errors {
 
 pub struct Compiler<'a> {
     lexer: Peekable<Lexer<'a>>,
-    compiling_chunk: &'a mut Chunk,
+    objects: &'a mut Manager,
+    function: Gc,
     locals: Locals<'a>,
     errors: Errors,
 }
 
 impl<'a> Compiler<'a> {
+    // Ok(Gc(Function))
+    pub fn compile(source: &'a str, objects: &mut Manager) -> Result<Gc, ()> {
+        let function = objects.new_function();
+        let mut compiler = Self {
+            lexer: Lexer::new(source).peekable(),
+            locals: Locals::new(),
+            errors: Errors::new(),
+            objects,
+            function
+        };
+        while compiler.peek_token().is_some() {
+            compiler.declaration();
+        }
+        if !compiler.errors.had_error {
+            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
+            Ok(function)
+        } else {
+            Err(())
+        }
+    }
+
     fn synchronize(&mut self) {
         while let Some(t) = self.peek_token() {
             match t.kind() {
@@ -236,26 +259,8 @@ impl<'a> Compiler<'a> {
         *self.current_chunk().at_mut(offset + 1) = (jump & 0xff) as u8;
     }
 
-    pub fn compile(source: &'a str, chunk: &'a mut Chunk) -> Result<(), ()> {
-        let mut compiler = Self {
-            lexer: Lexer::new(source).peekable(),
-            compiling_chunk: chunk,
-            locals: Locals::new(),
-            errors: Errors::new(),
-        };
-        while compiler.peek_token().is_some() {
-            compiler.declaration();
-        }
-        if !compiler.errors.had_error {
-            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.compiling_chunk
+        &mut self.objects.get_function(self.function).chunk
     }
 
     fn make_constant(&mut self, value: Value) -> u8 {
@@ -376,7 +381,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn identifier_constant(&mut self, name: String) -> u8 {
-        self.make_constant(Value::Object(Object::String(name.into())))
+        self.make_constant(Value::String(self.objects.new_string(name)))
     }
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {

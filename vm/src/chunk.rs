@@ -257,10 +257,10 @@ impl Display for Value {
 }
 
 #[derive(Debug)]
-struct Function {
-    arity: u8,
-    chunk: Chunk,
-    name: Gc,
+pub struct Function {
+    pub arity: u8,
+    pub chunk: Chunk,
+    pub name: Gc,
 }
 
 impl Display for Function {
