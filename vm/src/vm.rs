@@ -57,32 +57,46 @@ pub struct Vm {
 }
 
 impl Vm {
-    pub fn new(source: &str) -> Result<Self, ()> {
+    pub fn new() -> Self {
         // TODO: compile in a separate phase
-        let mut objects = Manager::new();
-        let function = Compiler::compile(source, &mut objects)?;
-        function.asdf;
-        Ok(Self {
+        Self {
+            function: Gc::uninit(),
             ip: 0,
             stack: Stack::new(),
             globals: HashMap::new(),
             objects: Manager::new(),
+        }
+    }
+
+    pub fn run(&mut self, source: &str) -> Result<(), ()> {
+        let function = Compiler::compile(source, &mut self.objects)?; 
+        self.function = function;
+        self.execute().map_err(|e| {
+            println!("{e}");
+            ()
         })
     }
 
+    fn current_chunk(&mut self) -> &mut Chunk {
+        let function = self.objects.get_function(self.function);
+        &mut function.chunk
+    }
+
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
-        Err(self.chunk.coords(self.ip).locate(error))
+        let ip = self.ip;
+        Err(self.current_chunk().coords(ip).locate(error))
     }
 
     fn read_byte(&mut self) -> u8 {
-        let ret = self.chunk.byte_at(self.ip);
+        let ip = self.ip;
+        let ret = self.current_chunk().byte_at(ip);
         self.ip += 1;
         ret
     }
 
     fn read_constant(&mut self) -> Value {
         let byte = self.read_byte();
-        self.chunk.get_constant(byte).clone()
+        self.current_chunk().get_constant(byte).clone()
     }
 
     fn is_falsey(value: Value) -> bool {
@@ -93,7 +107,7 @@ impl Vm {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), AtCoords<RunError>> {
+    fn execute(&mut self) -> Result<(), AtCoords<RunError>> {
         loop {
             // TODO: add macro for binary expressions
             match self.read_byte().try_into().unwrap() {
@@ -111,9 +125,13 @@ impl Vm {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a + b))
                         }
-                        (Value::String(a), Value::String(b)) => self
+                        (Value::String(a), Value::String(b)) => {
+                            let value = self.objects.get_string(a).to_owned() + self.objects.get_string(b);
+                            let value = self.objects.new_string(value);
+                            self
                                 .stack
-                                .push(Value::String(self.objects.new_string(self.objects.get_string(a).to_owned() + self.objects.get_string(b)))),
+                                .push(Value::String(value));
+                        }
                         _ => return self.error(RunError::ExpectedNumbersOrStrings),
                     }
                 }
@@ -207,7 +225,8 @@ impl Vm {
                     if let Some(value) = self.globals.get(&name) {
                         self.stack.push(value.clone());
                     } else {
-                        return self.error(RunError::UndefinedVariable(self.objects.get_string(name).into()));
+                        let name = self.objects.get_string(name).into();
+                        return self.error(RunError::UndefinedVariable(name));
                     }
                 }
                 OpCode::SetGlobal => {
@@ -216,7 +235,8 @@ impl Vm {
                         let new_value = self.stack.peek();
                         *value = new_value;
                     } else {
-                        return self.error(RunError::UndefinedVariable(self.objects.get_string(name).into()));
+                        let name = self.objects.get_string(name).into();
+                        return self.error(RunError::UndefinedVariable(name));
                     }
                 }
                 OpCode::GetLocal => {

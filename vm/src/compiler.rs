@@ -107,7 +107,7 @@ pub struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     // Ok(Gc(Function))
-    pub fn compile(source: &'a str, objects: &mut Manager) -> Result<Gc, ()> {
+    pub fn compile(source: &'a str, objects: &'a mut Manager) -> Result<Gc, ()> {
         let function = objects.new_function();
         let mut compiler = Self {
             lexer: Lexer::new(source).peekable(),
@@ -381,7 +381,8 @@ impl<'a> Compiler<'a> {
     }
 
     fn identifier_constant(&mut self, name: String) -> u8 {
-        self.make_constant(Value::String(self.objects.new_string(name)))
+        let value = self.objects.new_string(name);
+        self.make_constant(Value::String(value))
     }
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
@@ -689,8 +690,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn string(&mut self, token: &AtCoords<Token<'_>>) {
+        let s = self.objects.new_string(token.span().to_owned());
         self.emit_constant(
-            Object::String(token.span().to_owned().into()).into(),
+            Value::String(s),
             token.coords(),
         )
     }

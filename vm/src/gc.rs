@@ -6,6 +6,12 @@ use crate::chunk::{Function, Chunk};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Gc(usize);
 
+impl Gc {
+    pub fn uninit() -> Self {
+        Self(0)
+    }
+}
+
 pub struct Manager {
     strings: Vec<String>,
     functions: Vec<Function>,
@@ -40,7 +46,7 @@ impl Manager {
         Gc(self.functions.len() - 1)
     }
 
-    pub fn get_function(&mut self, f: Gc) -> &Function {
-        &self.functions[f.0]
+    pub fn get_function(&mut self, f: Gc) -> &mut Function {
+        &mut self.functions[f.0]
     }
 }

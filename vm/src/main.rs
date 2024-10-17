@@ -7,11 +7,7 @@ fn main() {
     let mut vm = Vm::new(&input).unwrap();
     vm.run().unwrap();*/
 
-    let mut c = Chunk::new();
+    let mut vm = Vm::new();
     let a = "for (var i = 0; i < 10; i = i + 1) for (var j = 0; j < i; j = j + 1) print j;";
-    println!("{:?}", Compiler::compile(a, &mut c));
-    println!("{}", c);
-    println!("compilation done");
-    let mut vm = Vm::new(a).unwrap();
-    println!("{:?}", vm.run());
+    vm.run(a);
 }
