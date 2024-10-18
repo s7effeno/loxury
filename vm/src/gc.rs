@@ -1,6 +1,7 @@
 // TODO: implement Gc<T> and trait
 
-use crate::chunk::{Function, Chunk};
+use std::fmt;
+use crate::chunk::{Function, Chunk, Value};
 
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -12,6 +13,7 @@ impl Gc {
     }
 }
 
+// FIXME: use generics
 pub struct Manager {
     strings: Vec<String>,
     functions: Vec<Function>,
@@ -48,5 +50,22 @@ impl Manager {
 
     pub fn get_function(&mut self, f: Gc) -> &mut Function {
         &mut self.functions[f.0]
+    }
+
+    // TODO: move to better place(?)
+    pub fn display(&mut self, value: Value, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match value {
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(v) => write!(f, "{v}"),
+            Value::String(v) => {
+                let v = self.get_string(v);
+                write!(f, "{v}")
+            }
+            Value::Function(v) => {
+                let v = self.get_function(v);
+
+            }
+        }
     }
 }

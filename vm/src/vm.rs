@@ -3,6 +3,7 @@ use crate::compiler::Compiler;
 use crate::location::AtCoords;
 use crate::RunError;
 use crate::gc::{Gc, Manager};
+use std::fmt;
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
@@ -210,7 +211,11 @@ impl Vm {
                     }
                 }
                 OpCode::Print => {
-                    println!("{}", self.stack.pop());
+                    let value = self.stack.peek();
+                    let mut lock = std::io::stdout().lock();
+                    self.print_value(value, lock);
+                    self.stack.pop();
+                    // println!("{}", self.stack.pop());
                 }
                 OpCode::Pop => {
                     self.stack.pop();
@@ -264,6 +269,26 @@ impl Vm {
                     self.ip -= offset as usize;
                 }
             }
+        }
+    }
+
+    fn print_value(&mut self, value: Value, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match value {
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(v) => write!(f, "{v}"),
+            Value::String(v) => {
+                let v = self.objects.get_string(v);
+                write!(f, "{v}")
+            },
+            Value::Function(v) => {
+                let name = self.objects.get_function(v).name;
+                if let Some(name) = name {
+                    write!(f, "<fn {}>", name)
+                } else {
+                    write!(f, "<script>")
+                }
+            },
         }
     }
 }

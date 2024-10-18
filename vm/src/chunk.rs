@@ -1,7 +1,7 @@
 use std::fmt::{self, Display};
 
 use crate::location::Coords;
-use crate::gc::Gc;
+use crate::gc::{Gc, Manager};
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -52,10 +52,8 @@ impl Chunk {
     pub fn coords(&self, index: usize) -> Coords {
         self.coords[index]
     }
-}
 
-impl Display for Chunk {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn disassemble(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {
@@ -72,7 +70,7 @@ impl Display for Chunk {
             ($op_name:expr) => {{
                 let index = *bytes.next().unwrap().1 as usize;
                 let arg = &self.constants[index];
-                writeln!(f, "{} {} {}", $op_name, index, arg)
+                writeln!(f, "{} {} {}", $op_name, index, print_value(arg))
             }};
         }
         macro_rules! jump {
@@ -243,28 +241,9 @@ impl Value {
     }
 }
 
-impl Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Nil => write!(f, "nil"),
-            Value::Bool(v) => write!(f, "{v}"),
-            Value::Number(v) => write!(f, "{v}"),
-            // FIXME: this must be implemented in the vm
-            Value::String(v) => write!(f, "{}", todo!()),
-            Value::Function(v) => write!(f, "{}", todo!()),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Function {
     pub arity: u8,
     pub chunk: Chunk,
-    pub name: Gc,
-}
-
-impl Display for Function {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<fn {}>", todo!())
-    }
+    pub name: Option<String>,
 }
