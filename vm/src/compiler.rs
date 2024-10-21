@@ -4,7 +4,7 @@ use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
 use crate::gc::{GcHandle, Manager};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
-use crate::CompileError;
+use crate::{ArrayVec, CompileError};
 
 use std::iter::Peekable;
 use std::mem::MaybeUninit;
@@ -27,36 +27,30 @@ enum Precedence {
 struct Locals<'a> {
     // Some if initialized, None if uninitialized, to implement self-referential initialization
     // error
-    locals: [MaybeUninit<(&'a str, Option<usize>)>; u8::MAX as usize + 1],
-    count: usize,
+    locals: ArrayVec<(&'a str, Option<usize>), 256>,
     scope_depth: usize,
 }
 
 impl<'a> Locals<'a> {
-    fn iter<'b>(&'b self) -> impl Iterator<Item = (&'a str, Option<usize>)> + 'b {
-        self.locals
-            .iter()
-            .take(self.count)
-            .rev()
-            .map(|l| unsafe { l.assume_init() })
-    }
-
     fn resolve(&self, name: &str) -> Result<Option<u8>, ()> {
-        self.iter()
+        self
+            .locals
+            .iter()
             .enumerate()
+            .rev()
             .find(|(_, (local, _))| local == &name)
             .map(|(p, (_, depth))| {
                 if depth.is_none() {
                     None
                 } else {
-                    Some(self.count as u8 - 1 - p as u8)
+                    Some(p as u8)
                 }
             })
             .ok_or(())
     }
 
     fn mark_initialized(&mut self) {
-        assert!(self.count > 0);
+        assert!(self.locals.len > 0);
         unsafe { self.locals[self.count - 1].assume_init_mut().1 = Some(self.scope_depth) };
     }
 }

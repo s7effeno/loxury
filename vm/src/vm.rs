@@ -1,7 +1,7 @@
 use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::location::AtCoords;
-use crate::RunError;
+use crate::{ArrayVec, RunError};
 use crate::gc::{GcHandle, Manager};
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
@@ -49,7 +49,7 @@ impl Stack {
 
 pub struct Vm {
     ip: usize,
-    stack: Stack,
+    stack: ArrayVec<Value, 256>,
     // name -> value
     globals: HashMap<GcHandle<String>, Value>,
     objects: Manager,
@@ -61,7 +61,7 @@ impl Vm {
         Self {
             function: GcHandle::uninit(),
             ip: 0,
-            stack: Stack::new(),
+            stack: ArrayVec::new(),
             globals: HashMap::new(),
             objects: Manager::new(),
         }
@@ -209,7 +209,7 @@ impl Vm {
                     }
                 }
                 OpCode::Print => {
-                    let value = self.stack.peek();
+                    let value = self.stack.last().unwrap().clone();
                     self.print_value(value);
                     println!("");
                     self.stack.pop();
@@ -235,7 +235,7 @@ impl Vm {
                 OpCode::SetGlobal => {
                     let name = self.read_constant().try_as_string().unwrap();
                     if let Some(value) = self.globals.get_mut(&name) {
-                        let new_value = self.stack.peek();
+                        let new_value = self.stack.last().unwrap().clone();
                         *value = new_value;
                     } else {
                         let name = self.objects.get_string(name).into();
@@ -244,17 +244,17 @@ impl Vm {
                 }
                 OpCode::GetLocal => {
                     let slot = self.read_byte();
-                    let value = self.stack.get(slot);
+                    let value = self.stack.get(slot as usize).unwrap().clone();
                     self.stack.push(value);
                 }
                 OpCode::SetLocal => {
                     let slot = self.read_byte();
-                    let value = self.stack.peek();
-                    self.stack.set(slot, value);
+                    let value = self.stack.last().unwrap().clone();
+                    self.stack.set(slot as usize, value);
                 }
                 OpCode::JumpIfFalse => {
                     let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
-                    if Self::is_falsey(self.stack.peek()) {
+                    if Self::is_falsey(self.stack.last().unwrap().clone()) {
                         self.ip += offset as usize;
                     }
                 }

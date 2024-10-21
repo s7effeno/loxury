@@ -8,7 +8,7 @@ mod gc;
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::mem::{self, MaybeUninit};
-use std::ptr;
+use std::{ptr, slice};
 
 #[derive(Debug, Clone)]
 pub enum CompileError {
@@ -86,20 +86,20 @@ struct ArrayVec<T, const N: usize> {
 }
 
 impl<T, const N: usize> ArrayVec<T, N> {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             values: unsafe { MaybeUninit::uninit().assume_init() },
             len: 0,
         }
     }
 
-    pub fn push(&mut self, value: T) {
+    fn push(&mut self, value: T) {
         assert_ne!(self.len, usize::MAX);
         (self.values[self.len as usize]).write(value);
         self.len += 1;
     }
 
-    pub fn pop(&mut self) -> T {
+    fn pop(&mut self) -> T {
         assert_ne!(self.len, 0);
         self.len -= 1;
         unsafe {
@@ -107,11 +107,12 @@ impl<T, const N: usize> ArrayVec<T, N> {
         }
     }
 
-    pub fn last(&self) -> Option<&T> {
-        if let [.., last] = &self.values { Some(unsafe { last.assume_init_ref() }) } else { None }
+    fn last(&self) -> Option<&T> {
+        let index = self.len - 1;
+        self.get(index)
     }
 
-    pub fn get(&mut self, index: usize) -> Option<&T> {
+    fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
             Some(unsafe { self.values[index as usize].assume_init_ref() })
         } else {
@@ -122,5 +123,11 @@ impl<T, const N: usize> ArrayVec<T, N> {
     fn set(&mut self, slot: usize, value: T) {
         assert!(slot < self.len);
         self.values[slot as usize].write(value);
+    }
+
+    fn iter(&self) -> std::slice::Iter<'_, T> {
+        unsafe {
+            slice::from_raw_parts(self.values.as_ptr() as *const T, self.len)
+        }.iter()
     }
 }
