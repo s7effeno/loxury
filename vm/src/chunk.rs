@@ -1,7 +1,7 @@
 use std::fmt::{self, Display};
 
 use crate::location::Coords;
-use crate::gc::{Gc, Manager};
+use crate::gc::{GcHandle, Manager};
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -53,107 +53,109 @@ impl Chunk {
         self.coords[index]
     }
 
-    fn disassemble(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub     fn disassemble(&self, objects: &mut Manager) -> fmt::Result {
         let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {
-                writeln!(f, "{}", $op_name)
+                println!("{}", $op_name)
             };
         }
         macro_rules! byte {
             ($op_name:expr) => {{
                 let arg = *bytes.next().unwrap().1;
-                writeln!(f, "{} {}", $op_name, arg)
+                println!("{} {}", $op_name, arg)
             }};
         }
         macro_rules! constant {
             ($op_name:expr) => {{
                 let index = *bytes.next().unwrap().1 as usize;
                 let arg = &self.constants[index];
-                writeln!(f, "{} {} {}", $op_name, index, print_value(arg))
+                print!("{} {}", $op_name, index);
+                objects.print_value(arg.clone());
+                println!("");
             }};
         }
         macro_rules! jump {
             ($op_name:expr, $addr:expr, $sign:tt) => {{
                 let offset = u16::from_be_bytes([*bytes.next().unwrap().1, *bytes.next().unwrap().1]);
                 let destination = $addr + 3 $sign offset as usize;
-                writeln!(f, "{} {} -> {}", $op_name, offset, destination)
+                print!("{} {} -> {}", $op_name, offset, destination)
             }};
         }
         while let Some((addr, &b)) = bytes.next() {
-            write!(f, "{} ", addr)?;
+            print!("{} ", addr);
             match b.try_into().unwrap() {
                 OpCode::Constant => {
-                    constant!("constant")?;
+                    constant!("constant");
                 }
                 OpCode::Add => {
-                    simple!("add")?;
+                    simple!("add");
                 }
                 OpCode::Subtract => {
-                    simple!("subtract")?;
+                    simple!("subtract");
                 }
                 OpCode::Multiply => {
-                    simple!("multiply")?;
+                    simple!("multiply");
                 }
                 OpCode::Divide => {
-                    simple!("divide")?;
+                    simple!("divide");
                 }
                 OpCode::Negate => {
-                    simple!("negate")?;
+                    simple!("negate");
                 }
                 OpCode::Return => {
-                    simple!("return")?;
+                    simple!("return");
                 }
                 OpCode::Nil => {
-                    simple!("nil")?;
+                    simple!("nil");
                 }
                 OpCode::True => {
-                    simple!("true")?;
+                    simple!("true");
                 }
                 OpCode::False => {
-                    simple!("false")?;
+                    simple!("false");
                 }
                 OpCode::Not => {
-                    simple!("not")?;
+                    simple!("not");
                 }
                 OpCode::Equal => {
-                    simple!("equal")?;
+                    simple!("equal");
                 }
                 OpCode::Greater => {
-                    simple!("greater")?;
+                    simple!("greater");
                 }
                 OpCode::Less => {
-                    simple!("less")?;
+                    simple!("less");
                 }
                 OpCode::Print => {
-                    simple!("print")?;
+                    simple!("print");
                 }
                 OpCode::Pop => {
-                    simple!("pop")?;
+                    simple!("pop");
                 }
                 OpCode::DefineGlobal => {
-                    constant!("define global")?;
+                    constant!("define global");
                 }
                 OpCode::GetGlobal => {
-                    constant!("get global")?;
+                    constant!("get global");
                 }
                 OpCode::SetGlobal => {
-                    constant!("set global")?;
+                    constant!("set global");
                 }
                 OpCode::GetLocal => {
-                    byte!("get local")?;
+                    byte!("get local");
                 }
                 OpCode::SetLocal => {
-                    byte!("set local")?;
+                    byte!("set local");
                 }
                 OpCode::JumpIfFalse => {
-                    jump!("jump if false", addr, +)?;
+                    jump!("jump if false", addr, +);
                 }
                 OpCode::Jump => {
-                    jump!("jump", addr, +)?;
+                    jump!("jump", addr, +);
                 }
                 OpCode::Loop => {
-                    jump!("loop", addr, -)?;
+                    jump!("loop", addr, -);
                 }
             }
         }
@@ -227,12 +229,12 @@ pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    String(Gc),
-    Function(Gc),
+    String(GcHandle<String>),
+    Function(GcHandle<Function>),
 }
 
 impl Value {
-    pub fn try_as_string(&self) -> Result<Gc, ()> {
+    pub fn try_as_string(&self) -> Result<GcHandle<String>, ()> {
         if let Self::String(v) = self {
             Ok(*v)
         } else {
@@ -243,7 +245,33 @@ impl Value {
 
 #[derive(Debug)]
 pub struct Function {
-    pub arity: u8,
+    arity: u8,
     pub chunk: Chunk,
-    pub name: Option<String>,
+    name: Option<String>,
+    kind: FunctionKind
+}
+
+#[derive(Debug)]
+pub enum FunctionKind {
+    Function, Script
+}
+
+impl Function {
+    pub fn new(kind: FunctionKind) -> Self {
+        Self {
+            arity: 0,
+            chunk: Chunk::new(),
+            name: None,
+            kind
+        }
+    }
+}
+
+impl Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.name {
+            Some(name) => write!(f, "<fn {}>", name),
+            None => write!(f, "<script>"),
+        }
+    }
 }

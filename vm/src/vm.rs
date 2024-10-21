@@ -1,9 +1,8 @@
-use crate::chunk::{Chunk, OpCode, Value};
+use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::location::AtCoords;
 use crate::RunError;
-use crate::gc::{Gc, Manager};
-use std::fmt;
+use crate::gc::{GcHandle, Manager};
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
@@ -52,16 +51,15 @@ pub struct Vm {
     ip: usize,
     stack: Stack,
     // name -> value
-    globals: HashMap<Gc, Value>,
+    globals: HashMap<GcHandle<String>, Value>,
     objects: Manager,
-    function: Gc,
+    function: GcHandle<Function>,
 }
 
 impl Vm {
     pub fn new() -> Self {
-        // TODO: compile in a separate phase
         Self {
-            function: Gc::uninit(),
+            function: GcHandle::uninit(),
             ip: 0,
             stack: Stack::new(),
             globals: HashMap::new(),
@@ -70,7 +68,7 @@ impl Vm {
     }
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
-        let function = Compiler::compile(source, &mut self.objects)?; 
+        let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?; 
         self.function = function;
         self.execute().map_err(|e| {
             println!("{e}");
@@ -212,8 +210,8 @@ impl Vm {
                 }
                 OpCode::Print => {
                     let value = self.stack.peek();
-                    let mut lock = std::io::stdout().lock();
-                    self.print_value(value, lock);
+                    self.print_value(value);
+                    println!("");
                     self.stack.pop();
                     // println!("{}", self.stack.pop());
                 }
@@ -272,23 +270,7 @@ impl Vm {
         }
     }
 
-    fn print_value(&mut self, value: Value, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match value {
-            Value::Bool(v) => write!(f, "{v}"),
-            Value::Nil => write!(f, "nil"),
-            Value::Number(v) => write!(f, "{v}"),
-            Value::String(v) => {
-                let v = self.objects.get_string(v);
-                write!(f, "{v}")
-            },
-            Value::Function(v) => {
-                let name = self.objects.get_function(v).name;
-                if let Some(name) = name {
-                    write!(f, "<fn {}>", name)
-                } else {
-                    write!(f, "<script>")
-                }
-            },
-        }
+    fn print_value(&mut self, value: Value) {
+        self.objects.print_value(value);
     }
 }

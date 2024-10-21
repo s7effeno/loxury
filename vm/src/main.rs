@@ -1,13 +1,37 @@
-use vm::chunk::Chunk;
-use vm::compiler::Compiler;
 use vm::vm::Vm;
+use std::{env, fs, io, process};
+use std::io::Write;
+
 fn main() {
-    /*let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let mut vm = Vm::new(&input).unwrap();
-    vm.run().unwrap();*/
+    let mut args = env::args();
+    args.next();
 
     let mut vm = Vm::new();
-    let a = "for (var i = 0; i < 10; i = i + 1) for (var j = 0; j < i; j = j + 1) print j;";
-    vm.run(a);
+    if let Err(()) = match (args.next(), args.next()) {
+        (None, None) => run_prompt(&mut vm),
+        (Some(filename), None) => run_file(&mut vm, &filename),
+        _ => Err(())
+    } {
+        process::exit(1);
+    };
+}
+
+fn run_prompt(vm: &mut Vm) -> ! {
+    loop {
+        print!("> ");
+        std::io::stdout().flush().unwrap();
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        let _ = vm.run(&input);
+    }
+}
+
+fn run_file(vm: &mut Vm, filename: &str) -> Result<(), ()> {
+    match fs::read_to_string(filename) {
+        Ok(source) => vm.run(&source),
+        Err(e) => {
+            eprintln!("{}", e.to_string().to_lowercase());
+            Err(())
+        }
+    }
 }

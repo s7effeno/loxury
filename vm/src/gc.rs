@@ -1,15 +1,61 @@
 // TODO: implement Gc<T> and trait
 
-use std::fmt;
-use crate::chunk::{Function, Chunk, Value};
+use std::marker::PhantomData;
+use std::hash::Hash;
+
+use crate::chunk::{Chunk, Function, FunctionKind, Value};
 
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct Gc(usize);
+#[derive(Debug)]
+pub struct GcHandle<T> {
+    idx: usize,
+    marked: bool,
+    _type: PhantomData<T>
+}
 
-impl Gc {
+impl<T> PartialEq for GcHandle<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.idx == other.idx
+    }
+}
+
+impl<T: PartialEq> Eq for GcHandle<T> {
+}
+
+impl Hash for GcHandle<String> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.idx.hash(state)
+    }
+}
+
+impl<T> Clone for GcHandle<T> {
+    fn clone(&self) -> Self {
+        Self::new(self.idx)
+    }
+}
+
+impl<T> Copy for GcHandle<T> { }
+
+trait Gc {
+    fn new(v: Self) -> GcHandle<Self> where Self: Sized;
+}
+
+impl<T> GcHandle<T> {
     pub fn uninit() -> Self {
-        Self(0)
+        // ugly but realistically it never reaches max
+        Self {
+            idx: usize::MAX,
+            marked: false,
+            _type: PhantomData,
+        }
+    }
+
+    pub fn new(idx: usize) -> Self {
+        Self {
+            idx,
+            marked: false,
+            _type: PhantomData,
+        }
     }
 }
 
@@ -29,42 +75,44 @@ impl Manager {
 }
 
 impl Manager {
-    pub fn new_string(&mut self, s: String) -> Gc {
-        self.strings.push(s);
-        Gc(self.strings.len() - 1)
+    pub fn new_string(&mut self, s: String) -> GcHandle<String> {
+        // FIXME: this interning truly sucks
+        // without this global variable resolving doesnt work
+        if let Some(v) = self.strings.iter().position(|x| x == &s) {
+            GcHandle::new(v)
+        } else {
+            self.strings.push(s);
+            GcHandle::new(self.strings.len() - 1)
+        }
     }
 
-    pub fn get_string(&mut self, s: Gc) -> &str {
-        &self.strings[s.0]
+    pub fn get_string(&self, s: GcHandle<String>) -> &str {
+        &self.strings[s.idx]
     }
 
-    pub fn new_function(&mut self) -> Gc {
-        let function = Function {
-            arity: 0,
-            name: Gc(0),
-            chunk: Chunk::new(),
-        };
+    pub fn new_function(&mut self, kind: FunctionKind) -> GcHandle<Function> {
+        let function = Function::new(kind);
         self.functions.push(function);
-        Gc(self.functions.len() - 1)
+        GcHandle::new(self.functions.len() - 1)
     }
 
-    pub fn get_function(&mut self, f: Gc) -> &mut Function {
-        &mut self.functions[f.0]
+    pub fn get_function(&mut self, f: GcHandle<Function>) -> &mut Function {
+        &mut self.functions[f.idx]
     }
 
     // TODO: move to better place(?)
-    pub fn display(&mut self, value: Value, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    pub fn print_value(&mut self, value: Value) {
         match value {
-            Value::Bool(v) => write!(f, "{v}"),
-            Value::Nil => write!(f, "nil"),
-            Value::Number(v) => write!(f, "{v}"),
+            Value::Bool(v) => print!("{v}"),
+            Value::Nil => print!("nil"),
+            Value::Number(v) => print!("{v}"),
             Value::String(v) => {
                 let v = self.get_string(v);
-                write!(f, "{v}")
+                print!("{v}")
             }
             Value::Function(v) => {
                 let v = self.get_function(v);
-
+                print!("{v}")
             }
         }
     }

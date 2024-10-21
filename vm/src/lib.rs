@@ -7,6 +7,8 @@ mod gc;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
+use std::mem::{self, MaybeUninit};
+use std::ptr;
 
 #[derive(Debug, Clone)]
 pub enum CompileError {
@@ -77,3 +79,48 @@ impl Display for RunError {
 }
 
 impl Error for RunError {}
+
+struct ArrayVec<T, const N: usize> {
+    values: [MaybeUninit<T>; u8::MAX as usize + 1],
+    len: usize,
+}
+
+impl<T, const N: usize> ArrayVec<T, N> {
+    pub fn new() -> Self {
+        Self {
+            values: unsafe { MaybeUninit::uninit().assume_init() },
+            len: 0,
+        }
+    }
+
+    pub fn push(&mut self, value: T) {
+        assert_ne!(self.len, usize::MAX);
+        (self.values[self.len as usize]).write(value);
+        self.len += 1;
+    }
+
+    pub fn pop(&mut self) -> T {
+        assert_ne!(self.len, 0);
+        self.len -= 1;
+        unsafe {
+            ptr::read(mem::transmute(self.values.as_ptr().add(self.len)))
+        }
+    }
+
+    pub fn last(&self) -> Option<&T> {
+        if let [.., last] = &self.values { Some(unsafe { last.assume_init_ref() }) } else { None }
+    }
+
+    pub fn get(&mut self, index: usize) -> Option<&T> {
+        if index < self.len {
+            Some(unsafe { self.values[index as usize].assume_init_ref() })
+        } else {
+            None
+        }
+    }
+
+    fn set(&mut self, slot: usize, value: T) {
+        assert!(slot < self.len);
+        self.values[slot as usize].write(value);
+    }
+}

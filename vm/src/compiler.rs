@@ -1,7 +1,7 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 
-use crate::chunk::{Chunk, OpCode, Value};
-use crate::gc::{Gc, Manager};
+use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
+use crate::gc::{GcHandle, Manager};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::CompileError;
@@ -100,15 +100,15 @@ impl Errors {
 pub struct Compiler<'a> {
     lexer: Peekable<Lexer<'a>>,
     objects: &'a mut Manager,
-    function: Gc,
+    function: GcHandle<Function>,
     locals: Locals<'a>,
     errors: Errors,
 }
 
 impl<'a> Compiler<'a> {
     // Ok(Gc(Function))
-    pub fn compile(source: &'a str, objects: &'a mut Manager) -> Result<Gc, ()> {
-        let function = objects.new_function();
+    pub fn compile(source: &'a str, objects: &'a mut Manager, function_kind: FunctionKind) -> Result<GcHandle<Function>, ()> {
+        let function = objects.new_function(function_kind);
         let mut compiler = Self {
             lexer: Lexer::new(source).peekable(),
             locals: Locals::new(),
