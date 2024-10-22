@@ -96,12 +96,16 @@ impl Manager {
         GcHandle::new(self.functions.len() - 1)
     }
 
-    pub fn get_function(&mut self, f: GcHandle<Function>) -> &mut Function {
+    pub fn get_function_mut(&mut self, f: GcHandle<Function>) -> &mut Function {
         &mut self.functions[f.idx]
     }
 
+    pub fn get_function(&self, f: GcHandle<Function>) -> &Function {
+        &self.functions[f.idx]
+    }
+
     // TODO: move to better place(?)
-    pub fn print_value(&mut self, value: Value) {
+    pub fn print_value(&self, value: Value) {
         match value {
             Value::Bool(v) => print!("{v}"),
             Value::Nil => print!("nil"),

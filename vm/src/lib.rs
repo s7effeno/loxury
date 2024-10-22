@@ -112,6 +112,11 @@ impl<T, const N: usize> ArrayVec<T, N> {
         self.get(index)
     }
 
+    fn last_mut(&mut self) -> Option<&mut T> {
+        let index = self.len - 1;
+        self.get_mut(index)
+    }
+
     fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
             Some(unsafe { self.values[index as usize].assume_init_ref() })
@@ -120,9 +125,9 @@ impl<T, const N: usize> ArrayVec<T, N> {
         }
     }
 
-    fn set(&mut self, slot: usize, value: T) {
+    fn get_mut(&mut self, slot: usize) -> Option<&mut T> {
         assert!(slot < self.len);
-        self.values[slot as usize].write(value);
+        Some(unsafe { mem::transmute(&mut self.values[slot as usize]) })
     }
 
     fn iter(&self) -> std::slice::Iter<'_, T> {

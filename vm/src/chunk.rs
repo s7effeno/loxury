@@ -53,7 +53,7 @@ impl Chunk {
         self.coords[index]
     }
 
-pub     fn disassemble(&self, objects: &mut Manager) -> fmt::Result {
+pub     fn disassemble(&self, objects: &Manager) -> fmt::Result {
         let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {

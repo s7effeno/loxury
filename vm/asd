@@ -1,0 +1,1 @@
+{ for (var i = 0; i < 10; i = i + 1) { var a = i; { print a; print i; { var i = a + 1; print i; } } } }

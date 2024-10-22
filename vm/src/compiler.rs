@@ -51,7 +51,31 @@ impl<'a> Locals<'a> {
 
     fn mark_initialized(&mut self) {
         assert!(self.locals.len > 0);
-        unsafe { self.locals[self.count - 1].assume_init_mut().1 = Some(self.scope_depth) };
+        self.locals.last_mut().unwrap().1 = Some(self.scope_depth);
+    }
+
+    fn end_scope(&mut self) -> usize {
+        self.locals.iter().rev().take_while(|(_, depth)| depth.unwrap_or(0) > self.scope_depth).count()
+    }
+
+    fn try_push(&mut self, name: &'a str) -> Result<(), ()> {
+        if self.locals.len == u8::MAX as usize + 1 {
+            Err(())
+        } else {
+            Ok(self.locals.push((name, None)))
+        }
+    }
+
+    fn is_unique(&self, name: &str) -> bool {
+        for (local, depth) in self.locals.iter() {
+            match depth {
+                Some(depth) if *depth < self.scope_depth => return true,
+                _ => {
+                    if &name == local { return false } else { () }
+                }
+            };
+        }
+        true
     }
 }
 
@@ -59,7 +83,6 @@ impl Locals<'_> {
     fn new() -> Self {
         Self {
             locals: unsafe { MaybeUninit::uninit().assume_init() },
-            count: 0,
             scope_depth: 0,
         }
     }
@@ -254,7 +277,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.objects.get_function(self.function).chunk
+        &mut self.objects.get_function_mut(self.function).chunk
     }
 
     fn make_constant(&mut self, value: Value) -> u8 {
@@ -274,22 +297,10 @@ impl<'a> Compiler<'a> {
     fn end_scope(&mut self, coords: Coords) {
         self.locals.scope_depth -= 1;
 
-        let count = self
-            .locals
-            .iter()
-            .take_while(|(_, depth)| {
-                if let Some(depth) = depth {
-                    *depth > self.locals.scope_depth
-                } else {
-                    false
-                }
-            })
-            .count();
-
-        for _ in 0..count {
+        for _ in 0..self.locals.end_scope()  {
+            println!("POP");
             self.emit_op(OpCode::Pop, coords);
         }
-        self.locals.count -= count;
     }
 
     fn expression(&mut self) {
@@ -380,15 +391,10 @@ impl<'a> Compiler<'a> {
     }
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
-        if self.locals.count == u8::MAX as usize + 1 {
+        if let Err(()) = self.locals.try_push(name.span()) {
             self.errors
                 .sync(&name.co_locate(CompileError::TooManyLocals));
-            return;
         }
-
-        let local = &mut self.locals.locals[self.locals.count];
-        self.locals.count += 1;
-        local.write((name.span(), None));
     }
 
     fn declare_variable(&mut self, name: AtCoords<Token<'a>>) {
@@ -396,19 +402,14 @@ impl<'a> Compiler<'a> {
             return;
         }
         let span = name.span().to_owned();
-        for (local_name, depth) in self.locals.iter() {
-            match depth {
-                Some(depth) if depth < self.locals.scope_depth => break,
-                _ => {
-                    if local_name == &span {
-                        self.errors.sync(
-                            &name.co_locate(CompileError::VariableRedeclaration(span.clone())),
-                        )
-                    }
-                }
-            }
+
+        if self.locals.is_unique(&span) {
+            self.add_local(name);
+        } else {
+            self.errors.sync(
+                &name.co_locate(CompileError::VariableRedeclaration(span.clone())),
+            )
         }
-        self.add_local(name);
     }
 
     fn parse_variable(&mut self, error: CompileError) -> Result<(u8, Coords), ()> {

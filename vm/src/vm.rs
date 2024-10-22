@@ -70,6 +70,8 @@ impl Vm {
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
         let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?; 
         self.function = function;
+        let function = self.objects.get_function(function);
+        function.chunk.disassemble(&self.objects);
         self.execute().map_err(|e| {
             println!("{e}");
             ()
@@ -77,7 +79,7 @@ impl Vm {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        let function = self.objects.get_function(self.function);
+        let function = self.objects.get_function_mut(self.function);
         &mut function.chunk
     }
 
@@ -250,7 +252,7 @@ impl Vm {
                 OpCode::SetLocal => {
                     let slot = self.read_byte();
                     let value = self.stack.last().unwrap().clone();
-                    self.stack.set(slot as usize, value);
+                    *self.stack.get_mut(slot as usize).unwrap() = value;
                 }
                 OpCode::JumpIfFalse => {
                     let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
