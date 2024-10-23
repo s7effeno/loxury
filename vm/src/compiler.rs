@@ -55,7 +55,11 @@ impl<'a> Locals<'a> {
     }
 
     fn end_scope(&mut self) -> usize {
-        self.locals.iter().rev().take_while(|(_, depth)| depth.unwrap_or(0) > self.scope_depth).count()
+        let to_pop = self.locals.iter().rev().take_while(|(_, depth)| depth.unwrap_or(0) > self.scope_depth).count();
+        for _ in 0..to_pop {
+            self.locals.pop();
+        }
+        to_pop
     }
 
     fn try_push(&mut self, name: &'a str) -> Result<(), ()> {
@@ -298,7 +302,6 @@ impl<'a> Compiler<'a> {
         self.locals.scope_depth -= 1;
 
         for _ in 0..self.locals.end_scope()  {
-            println!("POP");
             self.emit_op(OpCode::Pop, coords);
         }
     }
