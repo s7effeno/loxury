@@ -86,7 +86,7 @@ impl<'a> Locals<'a> {
 impl Locals<'_> {
     fn new() -> Self {
         Self {
-            locals: unsafe { MaybeUninit::uninit().assume_init() },
+            locals: ArrayVec::new(),
             scope_depth: 0,
         }
     }

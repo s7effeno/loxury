@@ -4,47 +4,11 @@ use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
 use crate::gc::{GcHandle, Manager};
 use std::collections::HashMap;
-use std::mem::MaybeUninit;
 
-struct Stack {
-    values: [MaybeUninit<Value>; u8::MAX as usize + 1],
-    count: u8,
-}
+struct CallFrame {
+    function: GcHandle<Function,
+    ip: usize,
 
-impl Stack {
-    fn new() -> Self {
-        Self {
-            values: unsafe { MaybeUninit::uninit().assume_init() },
-            count: 0,
-        }
-    }
-
-    fn push(&mut self, value: Value) {
-        assert_ne!(self.count, 255);
-        (self.values[self.count as usize]).write(value);
-        self.count += 1;
-    }
-
-    fn pop(&mut self) -> Value {
-        assert_ne!(self.count, 0);
-        self.count -= 1;
-        unsafe { (self.values[self.count as usize]).assume_init_ref() }.clone()
-    }
-
-    fn peek(&self) -> Value {
-        assert_ne!(self.count, 0);
-        unsafe { (self.values[(self.count - 1) as usize]).assume_init_ref() }.clone()
-    }
-
-    fn get(&mut self, slot: u8) -> Value {
-        assert!(slot < self.count);
-        unsafe { self.values[slot as usize].assume_init_ref() }.clone()
-    }
-
-    fn set(&mut self, slot: u8, value: Value) {
-        // assert!(slot < self.count);
-        self.values[slot as usize].write(value);
-    }
 }
 
 pub struct Vm {
@@ -71,7 +35,7 @@ impl Vm {
         let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?; 
         self.function = function;
         let function = self.objects.get_function(function);
-        function.chunk.disassemble(&self.objects);
+        let _ = function.chunk.disassemble(&self.objects);
         self.execute().map_err(|e| {
             println!("{e}");
             ()
