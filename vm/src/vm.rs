@@ -6,25 +6,33 @@ use crate::gc::{GcHandle, Manager};
 use std::collections::HashMap;
 
 struct CallFrame {
-    function: GcHandle<Function,
+    function: GcHandle<Function>,
     ip: usize,
+    base: usize,
+}
 
+impl CallFrame {
+    fn new(function: GcHandle<Function>, base: usize) -> Self {
+        Self {
+            function,
+            base,
+            ip: 0,
+        }
+    }
 }
 
 pub struct Vm {
-    ip: usize,
-    stack: ArrayVec<Value, 256>,
+    frames: ArrayVec<CallFrame, 64>,
+    stack: ArrayVec<Value, { 64 * 256 }>,
     // name -> value
     globals: HashMap<GcHandle<String>, Value>,
     objects: Manager,
-    function: GcHandle<Function>,
 }
 
 impl Vm {
     pub fn new() -> Self {
         Self {
-            function: GcHandle::uninit(),
-            ip: 0,
+            frames: ArrayVec::new(),
             stack: ArrayVec::new(),
             globals: HashMap::new(),
             objects: Manager::new(),
@@ -33,35 +41,26 @@ impl Vm {
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
         let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?; 
-        self.function = function;
-        let function = self.objects.get_function(function);
-        let _ = function.chunk.disassemble(&self.objects);
-        self.execute().map_err(|e| {
+        // self.function = function;
+        // let function = self.objects.get_function(function);
+        // let _ = function.chunk.disassemble(&self.objects);
+
+        self.frames.push(CallFrame::new(function, 0));
+        self.execute(function).map_err(|e| {
             println!("{e}");
             ()
         })
     }
 
-    fn current_chunk(&mut self) -> &mut Chunk {
-        let function = self.objects.get_function_mut(self.function);
-        &mut function.chunk
+    fn current_frame(&mut self) -> &mut CallFrame {
+        self.frames.last_mut().unwrap()
     }
 
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
-        let ip = self.ip;
-        Err(self.current_chunk().coords(ip).locate(error))
-    }
-
-    fn read_byte(&mut self) -> u8 {
-        let ip = self.ip;
-        let ret = self.current_chunk().byte_at(ip);
-        self.ip += 1;
-        ret
-    }
-
-    fn read_constant(&mut self) -> Value {
-        let byte = self.read_byte();
-        self.current_chunk().get_constant(byte).clone()
+        /*let frame = self.current_frame();
+        let ip = frame.ip;
+        Err(frame.function.coords(ip).locate(error))*/
+        todo!()
     }
 
     fn is_falsey(value: Value) -> bool {
@@ -72,15 +71,38 @@ impl Vm {
         }
     }
 
-    fn execute(&mut self) -> Result<(), AtCoords<RunError>> {
+    fn execute(&mut self, function: GcHandle<Function>) -> Result<(), AtCoords<RunError>> {
         loop {
+            macro_rules! function {
+                () => {
+                    self.objects.get_function(function)
+                };
+            }
+            macro_rules! read_byte {
+                () => {{
+                    let frame = self.frames.last_mut().unwrap();
+                    let ret = function!().chunk.byte_at(frame.ip);
+                    frame.ip += 1;
+                    ret
+                }}
+            }
+            macro_rules! read_wide {
+                () => {
+                    u16::from_be_bytes([read_byte!(), read_byte!()])
+                }
+            }
+            macro_rules! read_constant {
+                () => {
+                    function!().chunk.get_constant(read_byte!())
+                }
+            }
             // TODO: add macro for binary expressions
-            match self.read_byte().try_into().unwrap() {
+            match read_byte!().try_into().unwrap() {
                 OpCode::Return => {
                     return Ok(());
                 }
                 OpCode::Constant => {
-                    let constant = self.read_constant().clone();
+                    let constant = read_constant!().clone();
                     self.stack.push(constant);
                 }
                 OpCode::Add => {
@@ -185,12 +207,12 @@ impl Vm {
                     self.stack.pop();
                 }
                 OpCode::DefineGlobal => {
-                    let name = self.read_constant().try_as_string().unwrap();
+                    let name = read_constant!().try_as_string().unwrap();
                     let value = self.stack.pop();
                     self.globals.insert(name, value);
                 }
                 OpCode::GetGlobal => {
-                    let name = self.read_constant().try_as_string().unwrap();
+                    let name = read_constant!().try_as_string().unwrap();
                     if let Some(value) = self.globals.get(&name) {
                         self.stack.push(value.clone());
                     } else {
@@ -199,7 +221,7 @@ impl Vm {
                     }
                 }
                 OpCode::SetGlobal => {
-                    let name = self.read_constant().try_as_string().unwrap();
+                    let name = read_constant!().try_as_string().unwrap();
                     if let Some(value) = self.globals.get_mut(&name) {
                         let new_value = self.stack.last().unwrap().clone();
                         *value = new_value;
@@ -209,28 +231,30 @@ impl Vm {
                     }
                 }
                 OpCode::GetLocal => {
-                    let slot = self.read_byte();
+                    let slot = read_byte!();
+                    let slot = self.current_frame().base + slot as usize;
                     let value = self.stack.get(slot as usize).unwrap().clone();
                     self.stack.push(value);
                 }
                 OpCode::SetLocal => {
-                    let slot = self.read_byte();
+                    let slot = read_byte!();
+                    let slot = self.current_frame().base + slot as usize;
                     let value = self.stack.last().unwrap().clone();
                     *self.stack.get_mut(slot as usize).unwrap() = value;
                 }
                 OpCode::JumpIfFalse => {
-                    let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
+                    let offset = u16::from_be_bytes([read_byte!(), read_byte!()]);
                     if Self::is_falsey(self.stack.last().unwrap().clone()) {
-                        self.ip += offset as usize;
+                        self.frames.last_mut().unwrap().ip += offset as usize;
                     }
                 }
                 OpCode::Jump => {
-                    let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
-                    self.ip += offset as usize;
+                    let offset = read_wide!();
+                    self.current_frame().ip += offset as usize;
                 }
                 OpCode::Loop => {
-                    let offset = u16::from_be_bytes([self.read_byte(), self.read_byte()]);
-                    self.ip -= offset as usize;
+                    let offset = read_wide!();
+                    self.current_frame().ip -= offset as usize;
                 }
             }
         }
