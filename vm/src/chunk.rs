@@ -1,7 +1,7 @@
 use std::fmt::{self, Display};
 
-use crate::location::Coords;
 use crate::gc::{GcHandle, Manager};
+use crate::location::Coords;
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -53,7 +53,7 @@ impl Chunk {
         self.coords[index]
     }
 
-pub     fn disassemble(&self, objects: &Manager) -> fmt::Result {
+    pub fn disassemble(&self, objects: &Manager) -> fmt::Result {
         let mut bytes = self.code.iter().enumerate();
         macro_rules! simple {
             ($op_name:expr) => {
@@ -248,12 +248,13 @@ pub struct Function {
     arity: u8,
     pub chunk: Chunk,
     name: Option<String>,
-    kind: FunctionKind
+    kind: FunctionKind,
 }
 
 #[derive(Debug)]
 pub enum FunctionKind {
-    Function, Script
+    Function,
+    Script,
 }
 
 impl Function {
@@ -262,7 +263,7 @@ impl Function {
             arity: 0,
             chunk: Chunk::new(),
             name: None,
-            kind
+            kind,
         }
     }
 }

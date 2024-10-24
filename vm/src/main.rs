@@ -1,6 +1,6 @@
-use vm::vm::Vm;
-use std::{env, fs, io, process};
 use std::io::Write;
+use std::{env, fs, io, process};
+use vm::vm::Vm;
 
 fn main() {
     let mut args = env::args();
@@ -10,7 +10,7 @@ fn main() {
     if let Err(()) = match (args.next(), args.next()) {
         (None, None) => run_prompt(&mut vm),
         (Some(filename), None) => run_file(&mut vm, &filename),
-        _ => Err(())
+        _ => Err(()),
     } {
         process::exit(1);
     };

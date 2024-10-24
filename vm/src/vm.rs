@@ -1,8 +1,8 @@
 use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
 use crate::compiler::Compiler;
+use crate::gc::{GcHandle, Manager};
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
-use crate::gc::{GcHandle, Manager};
 use std::collections::HashMap;
 
 struct CallFrame {
@@ -40,7 +40,7 @@ impl Vm {
     }
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
-        let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?; 
+        let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?;
         // self.function = function;
         // let function = self.objects.get_function(function);
         // let _ = function.chunk.disassemble(&self.objects);
@@ -84,17 +84,17 @@ impl Vm {
                     let ret = function!().chunk.byte_at(frame.ip);
                     frame.ip += 1;
                     ret
-                }}
+                }};
             }
             macro_rules! read_wide {
                 () => {
                     u16::from_be_bytes([read_byte!(), read_byte!()])
-                }
+                };
             }
             macro_rules! read_constant {
                 () => {
                     function!().chunk.get_constant(read_byte!())
-                }
+                };
             }
             // TODO: add macro for binary expressions
             match read_byte!().try_into().unwrap() {
@@ -113,11 +113,10 @@ impl Vm {
                             self.stack.push(Value::Number(a + b))
                         }
                         (Value::String(a), Value::String(b)) => {
-                            let value = self.objects.get_string(a).to_owned() + self.objects.get_string(b);
+                            let value =
+                                self.objects.get_string(a).to_owned() + self.objects.get_string(b);
                             let value = self.objects.new_string(value);
-                            self
-                                .stack
-                                .push(Value::String(value));
+                            self.stack.push(Value::String(value));
                         }
                         _ => return self.error(RunError::ExpectedNumbersOrStrings),
                     }

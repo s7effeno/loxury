@@ -33,19 +33,20 @@ struct Locals<'a> {
 
 impl<'a> Locals<'a> {
     fn resolve(&self, name: &str) -> Result<Option<u8>, ()> {
-        self
-            .locals
+        self.locals
             .iter()
             .enumerate()
             .rev()
             .find(|(_, (local, _))| local == &name)
-            .map(|(p, (_, depth))| {
-                if depth.is_none() {
-                    None
-                } else {
-                    Some(p as u8)
-                }
-            })
+            .map(
+                |(p, (_, depth))| {
+                    if depth.is_none() {
+                        None
+                    } else {
+                        Some(p as u8)
+                    }
+                },
+            )
             .ok_or(())
     }
 
@@ -56,7 +57,13 @@ impl<'a> Locals<'a> {
     }
 
     fn end_scope(&mut self) -> usize {
-        let to_pop = self.locals.iter().rev().take_while(|(_, depth)| depth.unwrap_or(0) > self.scope_depth).count();
+        self.scope_depth -= 1;
+        let to_pop = self
+            .locals
+            .iter()
+            .rev()
+            .take_while(|(_, depth)| depth.unwrap_or(0) > self.scope_depth)
+            .count();
         for _ in 0..to_pop {
             self.locals.pop();
         }
@@ -76,7 +83,11 @@ impl<'a> Locals<'a> {
             match depth {
                 Some(depth) if *depth < self.scope_depth => return true,
                 _ => {
-                    if &name == local { return false } else { () }
+                    if &name == local {
+                        return false;
+                    } else {
+                        ()
+                    }
                 }
             };
         }
@@ -129,14 +140,18 @@ pub struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     // Ok(Gc(Function))
-    pub fn compile(source: &'a str, objects: &'a mut Manager, function_kind: FunctionKind) -> Result<GcHandle<Function>, ()> {
+    pub fn compile(
+        source: &'a str,
+        objects: &'a mut Manager,
+        function_kind: FunctionKind,
+    ) -> Result<GcHandle<Function>, ()> {
         let function = objects.new_function(function_kind);
         let mut compiler = Self {
             lexer: Lexer::new(source).peekable(),
             locals: Locals::new(),
             errors: Errors::new(),
             objects,
-            compiling_function: function
+            compiling_function: function,
         };
         while compiler.peek_token().is_some() {
             compiler.declaration();
@@ -300,9 +315,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn end_scope(&mut self, coords: Coords) {
-        self.locals.scope_depth -= 1;
-
-        for _ in 0..self.locals.end_scope()  {
+        for _ in 0..self.locals.end_scope() {
             self.emit_op(OpCode::Pop, coords);
         }
     }
@@ -412,14 +425,12 @@ impl<'a> Compiler<'a> {
         if self.locals.is_unique(&span) {
             self.add_local(name);
         } else {
-            self.errors.sync(
-                &name.co_locate(CompileError::VariableRedeclaration(span.clone())),
-            )
+            self.errors
+                .sync(&name.co_locate(CompileError::VariableRedeclaration(span.clone())))
         }
     }
 
     fn parse_variable(&mut self, error: CompileError) -> Result<(u8, Coords), ()> {
-        println!("PARSE VARIABLE");
         if let Some(identifier) = self.consume(TokenKind::Identifier, error) {
             let coords = identifier.coords();
             // `span` should be put inside `else`
@@ -531,8 +542,7 @@ impl<'a> Compiler<'a> {
         self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
     }
 
-    fn function(&mut self, kind: FunctionKind) {
-    }
+    fn function(&mut self, kind: FunctionKind) {}
 
     fn fun_declaration(&mut self) {
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
@@ -704,10 +714,7 @@ impl<'a> Compiler<'a> {
 
     fn string(&mut self, token: &AtCoords<Token<'_>>) {
         let s = self.objects.new_string(token.span().to_owned());
-        self.emit_constant(
-            Value::String(s),
-            token.coords(),
-        )
+        self.emit_constant(Value::String(s), token.coords())
     }
 
     fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Result<u8, ()> {
@@ -715,15 +722,15 @@ impl<'a> Compiler<'a> {
             Some(p) => p as u8,
             None => {
                 self.errors.sync(&name.co_locate(
-                CompileError::SelfReferencialVariableInitializer(name.span().into()),
-            ));
+                    CompileError::SelfReferencialVariableInitializer(name.span().into()),
+                ));
                 // error anyway
-                0}
+                0
+            }
         })
     }
 
     fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
-        println!("NAMED VARIABLE");
         let (arg, get, set) = match self.resolve_local(token) {
             Ok(arg) => (arg, OpCode::GetLocal, OpCode::SetLocal),
             Err(()) => (

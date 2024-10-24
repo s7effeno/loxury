@@ -1,9 +1,9 @@
 pub mod chunk;
 pub mod compiler;
+mod gc;
 mod lex;
 mod location;
 pub mod vm;
-mod gc;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
@@ -102,9 +102,7 @@ impl<T, const N: usize> ArrayVec<T, N> {
     fn pop(&mut self) -> T {
         assert_ne!(self.len, 0);
         self.len -= 1;
-        unsafe {
-            ptr::read(mem::transmute(self.values.as_ptr().add(self.len)))
-        }
+        unsafe { ptr::read(mem::transmute(self.values.as_ptr().add(self.len))) }
     }
 
     fn last(&self) -> Option<&T> {
@@ -131,8 +129,6 @@ impl<T, const N: usize> ArrayVec<T, N> {
     }
 
     fn iter(&self) -> std::slice::Iter<'_, T> {
-        unsafe {
-            slice::from_raw_parts(self.values.as_ptr() as *const T, self.len)
-        }.iter()
+        unsafe { slice::from_raw_parts(self.values.as_ptr() as *const T, self.len) }.iter()
     }
 }

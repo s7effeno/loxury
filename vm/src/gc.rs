@@ -1,16 +1,15 @@
 // TODO: implement Gc<T> and trait
 
-use std::marker::PhantomData;
 use std::hash::Hash;
+use std::marker::PhantomData;
 
 use crate::chunk::{Chunk, Function, FunctionKind, Value};
-
 
 #[derive(Debug)]
 pub struct GcHandle<T> {
     idx: usize,
     marked: bool,
-    _type: PhantomData<T>
+    _type: PhantomData<T>,
 }
 
 impl<T> PartialEq for GcHandle<T> {
@@ -19,8 +18,7 @@ impl<T> PartialEq for GcHandle<T> {
     }
 }
 
-impl<T: PartialEq> Eq for GcHandle<T> {
-}
+impl<T: PartialEq> Eq for GcHandle<T> {}
 
 impl Hash for GcHandle<String> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -34,10 +32,12 @@ impl<T> Clone for GcHandle<T> {
     }
 }
 
-impl<T> Copy for GcHandle<T> { }
+impl<T> Copy for GcHandle<T> {}
 
 trait Gc {
-    fn new(v: Self) -> GcHandle<Self> where Self: Sized;
+    fn new(v: Self) -> GcHandle<Self>
+    where
+        Self: Sized;
 }
 
 impl<T> GcHandle<T> {
