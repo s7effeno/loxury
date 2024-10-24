@@ -131,9 +131,9 @@ impl Errors {
 }
 
 pub struct Compiler<'a> {
-    lexer: Peekable<Lexer<'a>>,
+    lexer: &'a mut Peekable<Lexer<'a>>,
     objects: &'a mut Manager,
-    compiling_function: GcHandle<Function>,
+    compiling_function: Function,
     locals: Locals<'a>,
     errors: Errors,
 }
@@ -144,21 +144,29 @@ impl<'a> Compiler<'a> {
         source: &'a str,
         objects: &'a mut Manager,
         function_kind: FunctionKind,
-    ) -> Result<GcHandle<Function>, ()> {
-        let function = objects.new_function(function_kind);
+    ) -> Result<Function, ()> {
+        let mut lexer = Lexer::new(source).peekable();
+        Compiler::_compile(&mut lexer, objects, function_kind)
+    }
+
+    fn _compile(
+        lexer: &'a mut Peekable<Lexer<'a>>,
+        objects: &'a mut Manager,
+        function_kind: FunctionKind
+    ) -> Result<Function, ()> {
         let mut compiler = Self {
-            lexer: Lexer::new(source).peekable(),
+            lexer ,
             locals: Locals::new(),
             errors: Errors::new(),
             objects,
-            compiling_function: function,
+            compiling_function: Function::new(function_kind),
         };
         while compiler.peek_token().is_some() {
             compiler.declaration();
         }
         if !compiler.errors.had_error {
             compiler.current_chunk().write_nowhere(OpCode::Return as u8);
-            Ok(function)
+            Ok(compiler.compiling_function)
         } else {
             Err(())
         }
@@ -297,7 +305,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.objects.get_function_mut(self.compiling_function).chunk
+        &mut self.compiling_function.chunk
     }
 
     fn make_constant(&mut self, value: Value) -> u8 {
@@ -542,9 +550,12 @@ impl<'a> Compiler<'a> {
         self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
     }
 
-    fn function(&mut self, kind: FunctionKind) {}
+    fn function<'b: 'a>(&'b mut self, kind: FunctionKind) {
+        Self::_compile(self.lexer, self.objects, kind);
+        // self.emit_op(OpCode::Constant);
+    }
 
-    fn fun_declaration(&mut self) {
+    fn fun_declaration<'b>(&'b mut self) {
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
             self.locals.mark_initialized();
             self.function(FunctionKind::Function);

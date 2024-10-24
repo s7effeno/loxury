@@ -41,6 +41,7 @@ impl Vm {
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
         let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?;
+        let function = self.objects.new_function(function);
         // self.function = function;
         // let function = self.objects.get_function(function);
         // let _ = function.chunk.disassemble(&self.objects);

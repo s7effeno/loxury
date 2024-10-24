@@ -3,7 +3,7 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::chunk::{Chunk, Function, FunctionKind, Value};
+use crate::chunk::{Function, FunctionKind, Value};
 
 #[derive(Debug)]
 pub struct GcHandle<T> {
@@ -90,8 +90,7 @@ impl Manager {
         &self.strings[s.idx]
     }
 
-    pub fn new_function(&mut self, kind: FunctionKind) -> GcHandle<Function> {
-        let function = Function::new(kind);
+    pub fn new_function(&mut self, function: Function) -> GcHandle<Function> {
         self.functions.push(function);
         GcHandle::new(self.functions.len() - 1)
     }
