@@ -149,12 +149,12 @@ impl<'a> Compiler<'a> {
         Compiler::_compile(&mut lexer, objects, function_kind)
     }
 
-    fn _compile(
-        lexer: &'a mut Peekable<Lexer<'a>>,
-        objects: &'a mut Manager,
+    fn _compile<'b>(
+        lexer: &'b mut Peekable<Lexer<'b>>,
+        objects: &'b mut Manager,
         function_kind: FunctionKind
     ) -> Result<Function, ()> {
-        let mut compiler = Self {
+        let mut compiler = Compiler {
             lexer ,
             locals: Locals::new(),
             errors: Errors::new(),
@@ -550,15 +550,20 @@ impl<'a> Compiler<'a> {
         self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
     }
 
-    fn function<'b: 'a>(&'b mut self, kind: FunctionKind) {
-        Self::_compile(self.lexer, self.objects, kind);
+    fn function<'b>(&'b mut self, kind: FunctionKind) {
+        // let lexer = self.lexer.by_ref();
+        // let lexer = &mut self.lexer;
+        // let objects = &mut self.objects;
+        Compiler::_compile(self.lexer, self.objects, kind);
         // self.emit_op(OpCode::Constant);
     }
 
     fn fun_declaration<'b>(&'b mut self) {
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
             self.locals.mark_initialized();
-            self.function(FunctionKind::Function);
+            {
+                self.function(FunctionKind::Function);
+            }
             self.define_variable(global, coords);
         }
     }
