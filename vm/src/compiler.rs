@@ -50,8 +50,9 @@ impl<'a> Locals<'a> {
     }
 
     fn mark_initialized(&mut self) {
-        assert!(self.locals.len > 0);
-        self.locals.last_mut().unwrap().1 = Some(self.scope_depth);
+        if self.scope_depth > 0 {
+            self.locals.last_mut().unwrap().1 = Some(self.scope_depth);
+        }
     }
 
     fn end_scope(&mut self) -> usize {
@@ -121,7 +122,7 @@ impl Errors {
 pub struct Compiler<'a> {
     lexer: Peekable<Lexer<'a>>,
     objects: &'a mut Manager,
-    function: GcHandle<Function>,
+    compiling_function: GcHandle<Function>,
     locals: Locals<'a>,
     errors: Errors,
 }
@@ -135,7 +136,7 @@ impl<'a> Compiler<'a> {
             locals: Locals::new(),
             errors: Errors::new(),
             objects,
-            function
+            compiling_function: function
         };
         while compiler.peek_token().is_some() {
             compiler.declaration();
@@ -281,7 +282,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.objects.get_function_mut(self.function).chunk
+        &mut self.objects.get_function_mut(self.compiling_function).chunk
     }
 
     fn make_constant(&mut self, value: Value) -> u8 {
@@ -327,7 +328,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn declaration(&mut self) {
-        if self.next_token_if_eq(TokenKind::Var).is_some() {
+        if self.next_token_if_eq(TokenKind::Fun).is_some() {
+            self.fun_declaration();
+        } else if self.next_token_if_eq(TokenKind::Var).is_some() {
             self.var_declaration()
         } else {
             self.statement();
@@ -416,6 +419,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn parse_variable(&mut self, error: CompileError) -> Result<(u8, Coords), ()> {
+        println!("PARSE VARIABLE");
         if let Some(identifier) = self.consume(TokenKind::Identifier, error) {
             let coords = identifier.coords();
             // `span` should be put inside `else`
@@ -525,6 +529,17 @@ impl<'a> Compiler<'a> {
             self.declaration();
         }
         self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
+    }
+
+    fn function(&mut self, kind: FunctionKind) {
+    }
+
+    fn fun_declaration(&mut self) {
+        if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
+            self.locals.mark_initialized();
+            self.function(FunctionKind::Function);
+            self.define_variable(global, coords);
+        }
     }
 
     fn define_variable(&mut self, global: u8, coords: Coords) {
@@ -708,6 +723,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
+        println!("NAMED VARIABLE");
         let (arg, get, set) = match self.resolve_local(token) {
             Ok(arg) => (arg, OpCode::GetLocal, OpCode::SetLocal),
             Err(()) => (
