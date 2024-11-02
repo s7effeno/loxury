@@ -130,16 +130,15 @@ impl Errors {
     }
 }
 
-pub struct Compiler<'a> {
-    lexer: &'a mut Peekable<Lexer<'a>>,
+pub struct Compiler<'a, 't> {
+    lexer: &'a mut Peekable<Lexer<'t>>,
     objects: &'a mut Manager,
     compiling_function: Function,
     locals: Locals<'a>,
     errors: Errors,
 }
 
-impl<'a> Compiler<'a> {
-    // Ok(Gc(Function))
+impl<'a, 't> Compiler<'a, 't> {
     pub fn compile(
         source: &'a str,
         objects: &'a mut Manager,
@@ -150,7 +149,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn _compile<'b>(
-        lexer: &'b mut Peekable<Lexer<'b>>,
+        lexer: &'b mut Peekable<Lexer<'t>>,
         objects: &'b mut Manager,
         function_kind: FunctionKind
     ) -> Result<Function, ()> {
@@ -550,20 +549,14 @@ impl<'a> Compiler<'a> {
         self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
     }
 
-    fn function<'b>(&'b mut self, kind: FunctionKind) {
-        // let lexer = self.lexer.by_ref();
-        // let lexer = &mut self.lexer;
-        // let objects = &mut self.objects;
+    fn function(&mut self, kind: FunctionKind) {
         Compiler::_compile(self.lexer, self.objects, kind);
-        // self.emit_op(OpCode::Constant);
     }
 
     fn fun_declaration<'b>(&'b mut self) {
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
             self.locals.mark_initialized();
-            {
-                self.function(FunctionKind::Function);
-            }
+            self.function(FunctionKind::Function);
             self.define_variable(global, coords);
         }
     }
@@ -571,10 +564,10 @@ impl<'a> Compiler<'a> {
     fn define_variable(&mut self, global: u8, coords: Coords) {
         if self.locals.scope_depth > 0 {
             self.locals.mark_initialized();
-            return;
+        } else {
+            self.emit_op(OpCode::DefineGlobal, coords);
+            self.emit_byte(global, coords);
         }
-        self.emit_op(OpCode::DefineGlobal, coords);
-        self.emit_byte(global, coords);
     }
 
     fn and(&mut self, token: &AtCoords<Token>) {
