@@ -1,4 +1,5 @@
 // TODO: automate `emit_...` to avoid passing `coords`
+// TODO: maybe bind function name to FunctionKind::Function
 
 use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
 use crate::gc::{GcHandle, Manager};
@@ -7,7 +8,8 @@ use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::{ArrayVec, CompileError};
 
 use std::iter::Peekable;
-use std::mem::MaybeUninit;
+use std::mem;
+
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Precedence {
@@ -54,6 +56,10 @@ impl<'a> Locals<'a> {
         if self.scope_depth > 0 {
             self.locals.last_mut().unwrap().1 = Some(self.scope_depth);
         }
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1
     }
 
     fn end_scope(&mut self) -> usize {
@@ -139,33 +145,29 @@ pub struct Compiler<'a, 't> {
 }
 
 impl<'a, 't> Compiler<'a, 't> {
-    pub fn compile(
-        source: &'a str,
-        objects: &'a mut Manager,
-        function_kind: FunctionKind,
-    ) -> Result<Function, ()> {
-        let mut lexer = Lexer::new(source).peekable();
-        Compiler::_compile(&mut lexer, objects, function_kind)
-    }
-
-    fn _compile<'b>(
+    pub fn with_lexer<'b>(
         lexer: &'b mut Peekable<Lexer<'t>>,
         objects: &'b mut Manager,
         function_kind: FunctionKind
-    ) -> Result<Function, ()> {
-        let mut compiler = Compiler {
+    ) -> Compiler<'b, 't> {
+        Compiler {
             lexer ,
             locals: Locals::new(),
             errors: Errors::new(),
             objects,
             compiling_function: Function::new(function_kind),
-        };
-        while compiler.peek_token().is_some() {
-            compiler.declaration();
         }
-        if !compiler.errors.had_error {
-            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
-            Ok(compiler.compiling_function)
+    }
+
+    pub fn compile(&mut self) -> Result<Function, ()> {
+        while self.peek_token().is_some() {
+            self.declaration();
+        }
+        if !self.errors.had_error {
+            self.current_chunk().write_nowhere(OpCode::Return as u8);
+            // FIXME: better use `take`
+            let ret = mem::replace(&mut self.compiling_function, Function::new(FunctionKind::Function));
+            Ok(ret)
         } else {
             Err(())
         }
@@ -318,7 +320,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn begin_scope(&mut self) {
-        self.locals.scope_depth += 1;
+        self.locals.begin_scope()
     }
 
     fn end_scope(&mut self, coords: Coords) {
@@ -549,14 +551,40 @@ impl<'a, 't> Compiler<'a, 't> {
         self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
     }
 
-    fn function(&mut self, kind: FunctionKind) {
-        Compiler::_compile(self.lexer, self.objects, kind);
+    fn function(&mut self, kind: FunctionKind, coords: Coords, name: &str) {
+        let mut compiler = Self::with_lexer(&mut self.lexer, &mut self.objects, FunctionKind::Function);
+        compiler.begin_scope();
+        compiler.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
+        if let Some(coords) = compiler.peek_token().filter(|t| t.kind() != TokenKind::RightParen).map(|t| t.coords()) {
+            loop {
+                compiler.compiling_function.arity += 1;
+                if compiler.compiling_function.arity > u8::MAX {
+                    self.errors.report(&coords.locate(CompileError::TooManyLocals).into())
+                }
+                if let Ok((constant, coords)) = compiler.parse_variable(CompileError::ExpectedVariableName) {
+                    compiler.define_variable(constant, coords);
+                }
+                if compiler.next_token_if_eq(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+        compiler.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+        compiler.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
+        compiler.block();
+
+        let mut function = mem::replace(&mut compiler.compiling_function, Function::new(FunctionKind::Function));
+        function.name = Some(name.into());
+        let function = self.objects.new_function(function);
+
+        self.emit_constant(Value::Function(function), coords);
     }
 
     fn fun_declaration<'b>(&'b mut self) {
+        let Some(name) = self.peek_token().filter(|t| t.kind() == TokenKind::Identifier).map(|t| t.span()) else { unreachable!() };
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
             self.locals.mark_initialized();
-            self.function(FunctionKind::Function);
+            self.function(FunctionKind::Function, coords, name);
             self.define_variable(global, coords);
         }
     }

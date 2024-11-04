@@ -1,6 +1,7 @@
 use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::gc::{GcHandle, Manager};
+use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
 use std::collections::HashMap;
@@ -40,7 +41,7 @@ impl Vm {
     }
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
-        let function = Compiler::compile(source, &mut self.objects, FunctionKind::Script)?;
+        let function = Compiler::with_lexer(&mut Lexer::new(source).peekable(), &mut self.objects, FunctionKind::Script).compile()?;
         let function = self.objects.new_function(function);
         // self.function = function;
         // let function = self.objects.get_function(function);

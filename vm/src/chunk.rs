@@ -245,13 +245,13 @@ impl Value {
 
 #[derive(Debug)]
 pub struct Function {
-    arity: u8,
+    pub arity: u8,
     pub chunk: Chunk,
-    name: Option<String>,
+    pub name: Option<String>,
     kind: FunctionKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum FunctionKind {
     Function,
     Script,
