@@ -108,8 +108,8 @@ impl Vm {
                     self.stack.push(constant);
                 }
                 OpCode::Add => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a + b))
@@ -124,8 +124,8 @@ impl Vm {
                     }
                 }
                 OpCode::Subtract => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a - b))
@@ -134,8 +134,8 @@ impl Vm {
                     }
                 }
                 OpCode::Multiply => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a * b))
@@ -144,8 +144,8 @@ impl Vm {
                     }
                 }
                 OpCode::Divide => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a / b))
@@ -153,7 +153,7 @@ impl Vm {
                         _ => return self.error(RunError::ExpectedNumbers),
                     }
                 }
-                OpCode::Negate => match self.stack.pop() {
+                OpCode::Negate => match self.stack.pop().unwrap() {
                     Value::Number(n) => self.stack.push(Value::Number(-n)),
                     _ => self.error(RunError::ExpectedNumber)?,
                 },
@@ -167,12 +167,12 @@ impl Vm {
                     self.stack.push(Value::Bool(false));
                 }
                 OpCode::Not => {
-                    let value = Self::is_falsey(self.stack.pop());
+                    let value = Self::is_falsey(self.stack.pop().unwrap());
                     self.stack.push(Value::Bool(value));
                 }
                 OpCode::Equal => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     // TODO: implement separate function
                     self.stack.push(Value::Bool(match (a, b) {
                         (Value::Bool(a), Value::Bool(b)) => a == b,
@@ -182,16 +182,16 @@ impl Vm {
                     }));
                 }
                 OpCode::Greater => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a > b)),
                         _ => return self.error(RunError::ExpectedNumbers),
                     }
                 }
                 OpCode::Less => {
-                    let b = self.stack.pop();
-                    let a = self.stack.pop();
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match (a, b) {
                         (Value::Number(a), Value::Number(b)) => self.stack.push(Value::Bool(a < b)),
                         _ => return self.error(RunError::ExpectedNumbers),
@@ -209,7 +209,7 @@ impl Vm {
                 }
                 OpCode::DefineGlobal => {
                     let name = read_constant!().try_as_string().unwrap();
-                    let value = self.stack.pop();
+                    let value = self.stack.pop().unwrap();
                     self.globals.insert(name, value);
                 }
                 OpCode::GetGlobal => {

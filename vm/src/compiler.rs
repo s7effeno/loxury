@@ -552,28 +552,30 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn function(&mut self, kind: FunctionKind, coords: Coords, name: &str) {
-        let mut compiler = Self::with_lexer(&mut self.lexer, &mut self.objects, FunctionKind::Function);
-        compiler.begin_scope();
-        compiler.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
-        if let Some(coords) = compiler.peek_token().filter(|t| t.kind() != TokenKind::RightParen).map(|t| t.coords()) {
-            loop {
-                compiler.compiling_function.arity += 1;
-                if compiler.compiling_function.arity > u8::MAX {
-                    self.errors.report(&coords.locate(CompileError::TooManyLocals).into())
-                }
-                if let Ok((constant, coords)) = compiler.parse_variable(CompileError::ExpectedVariableName) {
-                    compiler.define_variable(constant, coords);
-                }
-                if compiler.next_token_if_eq(TokenKind::Comma).is_none() {
-                    break;
+        let mut function = {
+            let mut compiler = Self::with_lexer(&mut self.lexer, &mut self.objects, FunctionKind::Function);
+            compiler.begin_scope();
+            compiler.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
+            if let Some(coords) = compiler.peek_token().filter(|t| t.kind() != TokenKind::RightParen).map(|t| t.coords()) {
+                loop {
+                    compiler.compiling_function.arity += 1;
+                    if compiler.compiling_function.arity > u8::MAX {
+                        self.errors.report(&coords.locate(CompileError::TooManyLocals).into())
+                    }
+                    if let Ok((constant, coords)) = compiler.parse_variable(CompileError::ExpectedVariableName) {
+                        compiler.define_variable(constant, coords);
+                    }
+                    if compiler.next_token_if_eq(TokenKind::Comma).is_none() {
+                        break;
+                    }
                 }
             }
-        }
-        compiler.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
-        compiler.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
-        compiler.block();
+            compiler.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+            compiler.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
+            compiler.block();
 
-        let mut function = mem::replace(&mut compiler.compiling_function, Function::new(FunctionKind::Function));
+            mem::replace(&mut compiler.compiling_function, Function::new(FunctionKind::Function))
+        };
         function.name = Some(name.into());
         let function = self.objects.new_function(function);
 

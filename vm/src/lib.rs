@@ -83,54 +83,56 @@ impl Display for RunError {
 impl Error for RunError {}
 
 struct ArrayVec<T, const N: usize> {
-    values: [MaybeUninit<T>; u8::MAX as usize + 1],
+    values: [MaybeUninit<T>; N],
     len: usize,
 }
 
 impl<T, const N: usize> ArrayVec<T, N> {
     fn new() -> Self {
         Self {
-            values: unsafe { MaybeUninit::uninit().assume_init() },
+            values: [ const { MaybeUninit::uninit() }; N],
             len: 0,
         }
     }
 
     fn push(&mut self, value: T) {
-        assert_ne!(self.len, usize::MAX);
         (self.values[self.len as usize]).write(value);
         self.len += 1;
     }
 
-    fn pop(&mut self) -> T {
-        assert_ne!(self.len, 0);
-        self.len -= 1;
-        unsafe { ptr::read(mem::transmute(self.values.as_ptr().add(self.len))) }
+    fn pop(&mut self) -> Option<T> {
+        self.len = self.len.checked_sub(1)?;
+        Some(unsafe { self.values[self.len].assume_init_read() })
     }
 
-    fn last(&self) -> Option<&T> {
-        let index = self.len - 1;
-        self.get(index)
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self.values.as_ptr() as *const T, self.len) }
     }
 
-    fn last_mut(&mut self) -> Option<&mut T> {
-        let index = self.len - 1;
-        self.get_mut(index)
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        unsafe { slice::from_raw_parts_mut(self.values.as_mut_ptr() as *mut T, self.len) }
     }
+}
 
-    fn get(&self, index: usize) -> Option<&T> {
-        if index < self.len {
-            Some(unsafe { self.values[index as usize].assume_init_ref() })
-        } else {
-            None
+impl<T, const N: usize> Drop for ArrayVec<T, N> {
+    fn drop(&mut self) {
+        let len = self.len;
+        self.len = 0;
+        for i in 0..len {
+            unsafe { self.values[i].assume_init_drop() };
         }
     }
+}
 
-    fn get_mut(&mut self, slot: usize) -> Option<&mut T> {
-        assert!(slot < self.len);
-        Some(unsafe { mem::transmute(&mut self.values[slot as usize]) })
+impl<T, const N: usize> std::ops::Deref for ArrayVec<T, N> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        self.as_slice()
     }
+}
 
-    fn iter(&self) -> std::slice::Iter<'_, T> {
-        unsafe { slice::from_raw_parts(self.values.as_ptr() as *const T, self.len) }.iter()
+impl<T, const N: usize> std::ops::DerefMut for ArrayVec<T, N> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        self.as_mut_slice()
     }
 }
