@@ -26,8 +26,11 @@ pub enum CompileError {
     SelfReferencialVariableInitializer(String),
     ExpectedControlLeftParen,
     ExpectedControlRightParen,
+    UnclosedArgumentsList,
+    UnopenedArgumentsList,
     JumpTooWide,
     ExpectedForClauseSeparator,
+    TopLevelReturn,
 }
 
 impl Display for CompileError {
@@ -55,6 +58,9 @@ impl Display for CompileError {
             Self::ExpectedControlRightParen => write!(f, "expected ') after control clause"),
             Self::JumpTooWide => write!(f, "too much code to jump over"),
             Self::ExpectedForClauseSeparator => write!(f, "expected ';' to separate for clauses"),
+            Self::UnclosedArgumentsList => write!(f, "expected ')' after arguments"),
+            Self::UnopenedArgumentsList => write!(f, "expected '(' before arguments"),
+            Self::TopLevelReturn => write!(f, "can't return from top-level code"),
         }
     }
 }
@@ -67,6 +73,8 @@ pub enum RunError {
     ExpectedNumbers,
     ExpectedNumbersOrStrings,
     UndefinedVariable(String),
+    NotCallable,
+    WrongArity(u8, u8),
 }
 
 impl Display for RunError {
@@ -76,6 +84,8 @@ impl Display for RunError {
             Self::ExpectedNumbers => write!(f, "operands must be numbers"),
             Self::ExpectedNumbersOrStrings => write!(f, "operands must be numbers or strings"),
             Self::UndefinedVariable(v) => write!(f, "variable {} is not defined", v),
+            Self::NotCallable => write!(f, "can only call functions and classes"),
+            Self::WrongArity(expected, actual) => write!(f, "expected {} arguments, got {}", expected, actual),
         }
     }
 }

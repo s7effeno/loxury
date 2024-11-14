@@ -157,6 +157,9 @@ impl Chunk {
                 OpCode::Loop => {
                     jump!("loop", addr, -);
                 }
+                OpCode::Call => {
+                    byte!("call")
+                }
             }
         }
         Ok(())
@@ -187,6 +190,7 @@ pub enum OpCode {
     Jump,
     JumpIfFalse,
     Loop,
+    Call,
     Return,
 }
 
@@ -218,7 +222,8 @@ impl TryFrom<u8> for OpCode {
             20 => Ok(Self::Jump),
             21 => Ok(Self::JumpIfFalse),
             22 => Ok(Self::Loop),
-            23 => Ok(Self::Return),
+            23 => Ok(Self::Call),
+            24 => Ok(Self::Return),
             _ => Err(()),
         }
     }
@@ -248,7 +253,7 @@ pub struct Function {
     pub arity: u8,
     pub chunk: Chunk,
     pub name: Option<String>,
-    kind: FunctionKind,
+    pub kind: FunctionKind,
 }
 
 #[derive(Debug, Clone, Copy)]

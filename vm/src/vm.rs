@@ -84,6 +84,7 @@ impl Vm {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
                     let ret = function!().chunk.byte_at(frame.ip);
+                    println!("ip: {}", frame.ip);
                     frame.ip += 1;
                     ret
                 }};
@@ -101,7 +102,19 @@ impl Vm {
             // TODO: add macro for binary expressions
             match read_byte!().try_into().unwrap() {
                 OpCode::Return => {
-                    return Ok(());
+                    println!("return found");
+                    let result = self.stack.pop().unwrap();
+                    let frame = self.frames.pop().unwrap();
+                    if self.frames.len() == 0 {
+                        self.stack.pop();
+                        return Ok(());
+                    }
+
+                    for _ in frame.base..self.stack.len() {
+                        println!("decomposing frame");
+                        self.stack.pop();
+                    }
+                    self.stack.push(result);
                 }
                 OpCode::Constant => {
                     let constant = read_constant!().clone();
@@ -234,14 +247,14 @@ impl Vm {
                 OpCode::GetLocal => {
                     let slot = read_byte!();
                     let slot = self.current_frame().base + slot as usize;
-                    let value = self.stack.get(slot as usize).unwrap().clone();
+                    let value = self.stack[slot as usize].clone();
                     self.stack.push(value);
                 }
                 OpCode::SetLocal => {
                     let slot = read_byte!();
                     let slot = self.current_frame().base + slot as usize;
                     let value = self.stack.last().unwrap().clone();
-                    *self.stack.get_mut(slot as usize).unwrap() = value;
+                    self.stack[slot as usize] = value;
                 }
                 OpCode::JumpIfFalse => {
                     let offset = u16::from_be_bytes([read_byte!(), read_byte!()]);
@@ -257,7 +270,23 @@ impl Vm {
                     let offset = read_wide!();
                     self.current_frame().ip -= offset as usize;
                 }
+                OpCode::Call => {
+                    let args_count = read_byte!();
+                    let base = self.stack.len() - args_count as usize - 1;
+                    let function = self.stack[base].clone();
+                    match function {
+                        Value::Function(f) => {
+                            let arity = self.objects.get_function(f).arity;
+                            if arity != args_count {
+                                self.error(RunError::WrongArity(arity, args_count))?;
+                            }
+                            self.frames.push(CallFrame::new(f, base));
+                        }
+                        _ => self.error(RunError::NotCallable)?,
+                    }
+                }
             }
+            println!("{}", self.stack.len());
         }
     }
 

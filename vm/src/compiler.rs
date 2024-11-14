@@ -164,6 +164,7 @@ impl<'a, 't> Compiler<'a, 't> {
             self.declaration();
         }
         if !self.errors.had_error {
+            self.current_chunk().write_nowhere(OpCode::Nil as u8);
             self.current_chunk().write_nowhere(OpCode::Return as u8);
             // FIXME: better use `take`
             let ret = mem::replace(&mut self.compiling_function, Function::new(FunctionKind::Function));
@@ -368,6 +369,8 @@ impl<'a, 't> Compiler<'a, 't> {
             self.print_statement();
         } else if let Some(coords) = self.next_token_if_eq(TokenKind::If).map(|t| t.coords()) {
             self.if_statement(coords);
+        } else if let Some(coords) = self.next_token_if_eq(TokenKind::Return).map(|t| t.coords()) {
+            self.return_statement(coords);
         } else if let Some(coords) = self.next_token_if_eq(TokenKind::While).map(|t| t.coords()) {
             self.while_statement(coords);
         } else if let Some(coords) = self.next_token_if_eq(TokenKind::For).map(|t| t.coords()) {
@@ -392,6 +395,21 @@ impl<'a, 't> Compiler<'a, 't> {
             .map(|t| t.coords())
         {
             self.emit_op(OpCode::Print, c)
+        }
+    }
+
+    fn return_statement(&mut self, coords: Coords) {
+        if let FunctionKind::Script = self.compiling_function.kind {
+            self.errors.report(&coords.locate(CompileError::TopLevelReturn).into());
+        }
+
+        if self.next_token_if_eq(TokenKind::Semicolon).is_some() {
+            self.emit_op(OpCode::Nil, coords);
+            self.emit_op(OpCode::Return, coords);
+        } else {
+            self.expression();
+            self.consume(TokenKind::Semicolon, CompileError::UnclosedStatement);
+            self.emit_op(OpCode::Return, coords);
         }
     }
 
@@ -555,7 +573,7 @@ impl<'a, 't> Compiler<'a, 't> {
         let mut function = {
             let mut compiler = Self::with_lexer(&mut self.lexer, &mut self.objects, FunctionKind::Function);
             compiler.begin_scope();
-            compiler.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
+            compiler.consume(TokenKind::LeftParen, CompileError::UnopenedArgumentsList);
             if let Some(coords) = compiler.peek_token().filter(|t| t.kind() != TokenKind::RightParen).map(|t| t.coords()) {
                 loop {
                     compiler.compiling_function.arity += 1;
@@ -570,10 +588,14 @@ impl<'a, 't> Compiler<'a, 't> {
                     }
                 }
             }
-            compiler.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+            compiler.consume(TokenKind::RightParen, CompileError::UnclosedArgumentsList);
             compiler.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
             compiler.block();
 
+            compiler.current_chunk().write_nowhere(OpCode::Nil as u8);
+            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
+
+            self.errors.had_error = compiler.errors.had_error;
             mem::replace(&mut compiler.compiling_function, Function::new(FunctionKind::Function))
         };
         function.name = Some(name.into());
@@ -598,6 +620,21 @@ impl<'a, 't> Compiler<'a, 't> {
             self.emit_op(OpCode::DefineGlobal, coords);
             self.emit_byte(global, coords);
         }
+    }
+
+    fn argument_list(&mut self) -> u8 {
+        let mut count = 0;
+        if self.peek_token().filter(|t| t.kind() == TokenKind::RightParen).is_none() {
+            loop {
+                self.expression();
+                count += 1;
+                if self.next_token_if_eq(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenKind::RightParen, CompileError::UnclosedArgumentsList);
+        count
     }
 
     fn and(&mut self, token: &AtCoords<Token>) {
@@ -690,6 +727,7 @@ impl<'a, 't> Compiler<'a, 't> {
             TokenKind::LessEqual => self.binary(token),
             TokenKind::And => self.and(token),
             TokenKind::Or => self.or(token),
+            TokenKind::LeftParen => self.call(token),
             _ => return None,
         };
         Some(())
@@ -697,7 +735,7 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn precedence(kind: TokenKind) -> Precedence {
         match kind {
-            TokenKind::LeftParen => Precedence::None,
+            TokenKind::LeftParen => Precedence::Call,
             TokenKind::RightParen => Precedence::None,
             TokenKind::LeftBrace => Precedence::None,
             TokenKind::RightBrace => Precedence::None,
@@ -838,6 +876,12 @@ impl<'a, 't> Compiler<'a, 't> {
             }
             _ => unreachable!(),
         }
+    }
+
+    fn call(&mut self, token: &AtCoords<Token<'a>>) {
+        let arg_count = self.argument_list();
+        self.emit_op(OpCode::Call, token.coords());
+        self.emit_byte(arg_count, token.coords());
     }
 
     fn literal<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {
