@@ -43,12 +43,9 @@ impl Vm {
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
         let function = Compiler::with_lexer(&mut Lexer::new(source).peekable(), &mut self.objects, FunctionKind::Script).compile()?;
         let function = self.objects.new_function(function);
-        // self.function = function;
-        // let function = self.objects.get_function(function);
-        // let _ = function.chunk.disassemble(&self.objects);
 
         self.frames.push(CallFrame::new(function, 0));
-        self.execute(function).map_err(|e| {
+        self.execute().map_err(|e| {
             println!("{e}");
             ()
         })
@@ -59,10 +56,10 @@ impl Vm {
     }
 
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
-        /*let frame = self.current_frame();
-        let ip = frame.ip;
-        Err(frame.function.coords(ip).locate(error))*/
-        todo!()
+        let ip = self.current_frame().ip;
+        let function = self.current_frame().function;
+        let function = self.objects.get_function(function);
+        Err(function.chunk.coords(ip).locate(error))
     }
 
     fn is_falsey(value: Value) -> bool {
@@ -73,18 +70,20 @@ impl Vm {
         }
     }
 
-    fn execute(&mut self, function: GcHandle<Function>) -> Result<(), AtCoords<RunError>> {
+    fn execute(&mut self) -> Result<(), AtCoords<RunError>> {
         loop {
             macro_rules! function {
-                () => {
+                () => {{
+                    let function = self.frames.last().unwrap().function;
                     self.objects.get_function(function)
-                };
+                }};
             }
             macro_rules! read_byte {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
-                    let ret = function!().chunk.byte_at(frame.ip);
-                    println!("ip: {}", frame.ip);
+                    let function = self.objects.get_function(frame.function);
+                    let ip = frame.ip;
+                    let ret = function.chunk.byte_at(ip);
                     frame.ip += 1;
                     ret
                 }};
@@ -102,7 +101,6 @@ impl Vm {
             // TODO: add macro for binary expressions
             match read_byte!().try_into().unwrap() {
                 OpCode::Return => {
-                    println!("return found");
                     let result = self.stack.pop().unwrap();
                     let frame = self.frames.pop().unwrap();
                     if self.frames.len() == 0 {
@@ -111,7 +109,6 @@ impl Vm {
                     }
 
                     for _ in frame.base..self.stack.len() {
-                        println!("decomposing frame");
                         self.stack.pop();
                     }
                     self.stack.push(result);
@@ -215,7 +212,6 @@ impl Vm {
                     self.print_value(value);
                     println!("");
                     self.stack.pop();
-                    // println!("{}", self.stack.pop());
                 }
                 OpCode::Pop => {
                     self.stack.pop();
@@ -272,7 +268,7 @@ impl Vm {
                 }
                 OpCode::Call => {
                     let args_count = read_byte!();
-                    let base = self.stack.len() - args_count as usize - 1;
+                    let base = self.stack.len() - 1 - args_count as usize;
                     let function = self.stack[base].clone();
                     match function {
                         Value::Function(f) => {
@@ -286,7 +282,6 @@ impl Vm {
                     }
                 }
             }
-            println!("{}", self.stack.len());
         }
     }
 

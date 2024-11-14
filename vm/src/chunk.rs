@@ -70,7 +70,7 @@ impl Chunk {
             ($op_name:expr) => {{
                 let index = *bytes.next().unwrap().1 as usize;
                 let arg = &self.constants[index];
-                print!("{} {}", $op_name, index);
+                print!("{} {} ", $op_name, index);
                 objects.print_value(arg.clone());
                 println!("");
             }};

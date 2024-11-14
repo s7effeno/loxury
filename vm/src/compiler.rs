@@ -150,9 +150,12 @@ impl<'a, 't> Compiler<'a, 't> {
         objects: &'b mut Manager,
         function_kind: FunctionKind
     ) -> Compiler<'b, 't> {
+        // TODO: move to `Locals::new`?
+        let mut locals = Locals::new();
+        let _ = locals.try_push("");
         Compiler {
             lexer ,
-            locals: Locals::new(),
+            locals,
             errors: Errors::new(),
             objects,
             compiling_function: Function::new(function_kind),
@@ -166,6 +169,10 @@ impl<'a, 't> Compiler<'a, 't> {
         if !self.errors.had_error {
             self.current_chunk().write_nowhere(OpCode::Nil as u8);
             self.current_chunk().write_nowhere(OpCode::Return as u8);
+
+            println!("---{}---", self.compiling_function);
+            let _ = self.compiling_function.chunk.disassemble(self.objects);
+
             // FIXME: better use `take`
             let ret = mem::replace(&mut self.compiling_function, Function::new(FunctionKind::Function));
             Ok(ret)
@@ -595,10 +602,15 @@ impl<'a, 't> Compiler<'a, 't> {
             compiler.current_chunk().write_nowhere(OpCode::Nil as u8);
             compiler.current_chunk().write_nowhere(OpCode::Return as u8);
 
-            self.errors.had_error = compiler.errors.had_error;
+            self.errors.had_error |= compiler.errors.had_error;
             mem::replace(&mut compiler.compiling_function, Function::new(FunctionKind::Function))
         };
+
         function.name = Some(name.into());
+
+        println!("---{}---", function);
+        let _ = function.chunk.disassemble(self.objects);
+
         let function = self.objects.new_function(function);
 
         self.emit_constant(Value::Function(function), coords);
