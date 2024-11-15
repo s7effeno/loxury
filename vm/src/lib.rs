@@ -106,7 +106,8 @@ impl<T, const N: usize> ArrayVec<T, N> {
     }
 
     fn push(&mut self, value: T) {
-        (self.values[self.len as usize]).write(value);
+        let len = self.len;
+        unsafe { ptr::write(self.as_mut_ptr().add(len), value) }
         self.len += 1;
     }
 

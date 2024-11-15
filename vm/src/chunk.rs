@@ -23,6 +23,7 @@ impl Chunk {
         self.code.len()
     }
 
+    // TODO: consider making unsafe, +3% boost
     pub fn byte_at(&self, index: usize) -> u8 {
         self.code[index]
     }

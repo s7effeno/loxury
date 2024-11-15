@@ -96,11 +96,11 @@ impl Manager {
     }
 
     pub fn get_function_mut(&mut self, f: GcHandle<Function>) -> &mut Function {
-        &mut self.functions[f.idx]
+        unsafe { self.functions.get_unchecked_mut(f.idx) }
     }
 
     pub fn get_function(&self, f: GcHandle<Function>) -> &Function {
-        &self.functions[f.idx]
+        unsafe { self.functions.get_unchecked(f.idx) }
     }
 
     // TODO: move to better place(?)

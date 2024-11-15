@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# gc = { version = "0.5", features = ["derive"] }
+
+[profile.release]
+debug = 1
