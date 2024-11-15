@@ -117,6 +117,9 @@ impl Manager {
                 let v = self.get_function(v);
                 print!("{v}")
             }
+            Value::NativeFunction{ .. } => {
+                print!("<native fn>")
+            }
         }
     }
 }

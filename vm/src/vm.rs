@@ -1,10 +1,12 @@
-use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
+use crate::chunk::{Function, FunctionKind, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::gc::{GcHandle, Manager};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
 use std::collections::HashMap;
+
+use std::time::UNIX_EPOCH;
 
 struct CallFrame {
     function: GcHandle<Function>,
@@ -32,12 +34,27 @@ pub struct Vm {
 
 impl Vm {
     pub fn new() -> Self {
-        Self {
+        let mut ret = Self {
             frames: ArrayVec::new(),
             stack: ArrayVec::new(),
             globals: HashMap::new(),
             objects: Manager::new(),
-        }
+        };
+        ret.define_native("clock", 0, |_| { Value::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64) });
+        ret
+    }
+
+    pub fn define_native(&mut self, name: &str, arity: u8, f: fn(&[Value]) -> Value) {
+        let name = self.objects.new_string(name.to_owned());
+        self.stack.push(Value::String(name));
+        self.globals.insert(
+            name,
+            Value::NativeFunction {
+                arity,
+                f,
+            }
+        );
+        self.stack.pop();
     }
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
@@ -277,6 +294,16 @@ impl Vm {
                                 self.error(RunError::WrongArity(arity, args_count))?;
                             }
                             self.frames.push(CallFrame::new(f, base));
+                        }
+                        Value::NativeFunction{ arity, f } => {
+                            if arity != args_count {
+                                self.error(RunError::WrongArity(arity, args_count))?;
+                            }
+                            let result = f(&self.stack[base + 1..]);
+                            for _ in 0..args_count + 1 {
+                                self.stack.pop();
+                            }
+                            self.stack.push(result);
                         }
                         _ => self.error(RunError::NotCallable)?,
                     }
