@@ -85,7 +85,9 @@ impl Display for RunError {
             Self::ExpectedNumbersOrStrings => write!(f, "operands must be numbers or strings"),
             Self::UndefinedVariable(v) => write!(f, "variable {} is not defined", v),
             Self::NotCallable => write!(f, "can only call functions and classes"),
-            Self::WrongArity(expected, actual) => write!(f, "expected {} arguments, got {}", expected, actual),
+            Self::WrongArity(expected, actual) => {
+                write!(f, "expected {} arguments, got {}", expected, actual)
+            }
         }
     }
 }
@@ -100,7 +102,7 @@ struct ArrayVec<T, const N: usize> {
 impl<T, const N: usize> ArrayVec<T, N> {
     fn new() -> Self {
         Self {
-            values: [ const { MaybeUninit::uninit() }; N],
+            values: [const { MaybeUninit::uninit() }; N],
             len: 0,
         }
     }

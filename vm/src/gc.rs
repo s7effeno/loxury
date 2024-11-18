@@ -34,23 +34,18 @@ impl<T> Clone for GcHandle<T> {
 
 impl<T> Copy for GcHandle<T> {}
 
-trait Gc {
-    fn new(v: Self) -> GcHandle<Self>
+pub trait Gc {
+    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
+    where
+        Self: Sized;
+
+    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
     where
         Self: Sized;
 }
 
 impl<T> GcHandle<T> {
-    pub fn uninit() -> Self {
-        // ugly but realistically it never reaches max
-        Self {
-            idx: usize::MAX,
-            marked: false,
-            _type: PhantomData,
-        }
-    }
-
-    pub fn new(idx: usize) -> Self {
+    fn new(idx: usize) -> Self {
         Self {
             idx,
             marked: false,
@@ -72,24 +67,38 @@ impl Manager {
             functions: Vec::new(),
         }
     }
+
+    pub fn add<T: Gc>(&mut self, value: T) -> GcHandle<T> {
+        T::new(self, value)
+    }
+
+    pub fn get<T: Gc>(&self, handle: GcHandle<T>) -> &T {
+        T::get(self, handle)
+    }
 }
 
-impl Manager {
-    pub fn new_string(&mut self, s: String) -> GcHandle<String> {
-        // FIXME: this interning truly sucks
-        // without this global variable resolving doesnt work
-        if let Some(v) = self.strings.iter().position(|x| x == &s) {
+impl Gc for String {
+    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
+    where
+        Self: Sized,
+    {
+        if let Some(v) = manager.strings.iter().position(|x| x == &value) {
             GcHandle::new(v)
         } else {
-            self.strings.push(s);
-            GcHandle::new(self.strings.len() - 1)
+            manager.strings.push(value);
+            GcHandle::new(manager.strings.len() - 1)
         }
     }
 
-    pub fn get_string(&self, s: GcHandle<String>) -> &str {
-        &self.strings[s.idx]
+    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
+    where
+        Self: Sized,
+    {
+        &manager.strings[handle.idx]
     }
+}
 
+impl Manager {
     pub fn new_function(&mut self, function: Function) -> GcHandle<Function> {
         self.functions.push(function);
         GcHandle::new(self.functions.len() - 1)
@@ -110,14 +119,14 @@ impl Manager {
             Value::Nil => print!("nil"),
             Value::Number(v) => print!("{v}"),
             Value::String(v) => {
-                let v = self.get_string(v);
+                let v = self.get(v);
                 print!("{v}")
             }
             Value::Function(v) => {
                 let v = self.get_function(v);
                 print!("{v}")
             }
-            Value::NativeFunction{ .. } => {
+            Value::NativeFunction { .. } => {
                 print!("<native fn>")
             }
         }
