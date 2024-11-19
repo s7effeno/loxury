@@ -108,6 +108,8 @@ impl<T, const N: usize> ArrayVec<T, N> {
     }
 
     fn push(&mut self, value: T) {
+        // TODO: add check
+        assert_ne!(self.len, N);
         let len = self.len;
         unsafe { ptr::write(self.as_mut_ptr().add(len), value) }
         self.len += 1;
@@ -115,8 +117,13 @@ impl<T, const N: usize> ArrayVec<T, N> {
 
     fn pop(&mut self) -> Option<T> {
         self.len = self.len.checked_sub(1)?;
-        Some(unsafe { self.values[self.len].assume_init_read() })
+        Some(unsafe { ptr::read(mem::transmute(self.values.as_ptr().add(self.len))) })
     }
+
+    // unsafe fn pop_unchecked(&mut self) -> T {
+    //     self.len -= 1;
+    //     unsafe { ptr::read(mem::transmute(self.values.as_ptr().add(self.len))) }
+    // }
 
     pub fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self.values.as_ptr() as *const T, self.len) }

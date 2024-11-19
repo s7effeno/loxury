@@ -1,3 +1,5 @@
+// TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
+// TODO: use infallible for `error`
 use crate::chunk::{Function, FunctionKind, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::gc::{GcHandle, Manager};
@@ -5,7 +7,6 @@ use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
 use std::collections::HashMap;
-use std::convert::Infallible;
 
 use std::time::UNIX_EPOCH;
 
@@ -56,6 +57,11 @@ impl Vm {
     }
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
+        // clear previous junk
+        // FIXME: check if needs optimization
+        self.stack = ArrayVec::new();
+        self.frames = ArrayVec::new();
+
         let function = Compiler::with_lexer(
             &mut Lexer::new(source).peekable(),
             &mut self.objects,

@@ -5,5 +5,3 @@ edition = "2021"
 
 [dependencies]
 
-[profile.release]
-debug = 1
