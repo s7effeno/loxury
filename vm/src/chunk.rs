@@ -80,7 +80,7 @@ impl Chunk {
             ($op_name:expr, $addr:expr, $sign:tt) => {{
                 let offset = u16::from_be_bytes([*bytes.next().unwrap().1, *bytes.next().unwrap().1]);
                 let destination = $addr + 3 $sign offset as usize;
-                print!("{} {} -> {}", $op_name, offset, destination)
+                println!("{} {} -> {}", $op_name, offset, destination)
             }};
         }
         while let Some((addr, &b)) = bytes.next() {

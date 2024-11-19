@@ -5,6 +5,7 @@ use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
 use std::collections::HashMap;
+use std::convert::Infallible;
 
 use std::time::UNIX_EPOCH;
 
@@ -62,6 +63,7 @@ impl Vm {
         let function = self.objects.new_function(function);
 
         self.frames.push(CallFrame::new(function, 0));
+        self.stack.push(Value::Function(function));
         self.execute().map_err(|e| {
             println!("{e}");
             ()
