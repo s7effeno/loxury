@@ -135,8 +135,8 @@ impl Vm {
                     self.stack.push(result);
                 }
                 OpCode::Constant => {
-                    let constant = read_constant!().clone();
-                    self.stack.push(constant);
+                    let constant = read_constant!();
+                    self.stack.push(*constant);
                 }
                 OpCode::Add => {
                     let b = self.stack.pop().unwrap();
@@ -228,8 +228,8 @@ impl Vm {
                     }
                 }
                 OpCode::Print => {
-                    let value = self.stack.last().unwrap().clone();
-                    self.print_value(value);
+                    let value = self.stack.last().unwrap();
+                    self.print_value(*value);
                     println!("");
                     self.stack.pop();
                 }
@@ -244,7 +244,7 @@ impl Vm {
                 OpCode::GetGlobal => {
                     let name = read_constant!().try_as_string().unwrap();
                     if let Some(value) = self.globals.get(&name) {
-                        self.stack.push(value.clone());
+                        self.stack.push(*value);
                     } else {
                         let name = self.objects.get(name).into();
                         return self.error(RunError::UndefinedVariable(name));
@@ -253,8 +253,8 @@ impl Vm {
                 OpCode::SetGlobal => {
                     let name = read_constant!().try_as_string().unwrap();
                     if let Some(value) = self.globals.get_mut(&name) {
-                        let new_value = self.stack.last().unwrap().clone();
-                        *value = new_value;
+                        let new_value = self.stack.last().unwrap();
+                        *value = *new_value;
                     } else {
                         let name = self.objects.get(name).into();
                         return self.error(RunError::UndefinedVariable(name));
@@ -263,18 +263,18 @@ impl Vm {
                 OpCode::GetLocal => {
                     let slot = read_byte!();
                     let slot = self.current_frame().base + slot as usize;
-                    let value = self.stack[slot as usize].clone();
+                    let value = self.stack[slot as usize];
                     self.stack.push(value);
                 }
                 OpCode::SetLocal => {
                     let slot = read_byte!();
                     let slot = self.current_frame().base + slot as usize;
-                    let value = self.stack.last().unwrap().clone();
-                    self.stack[slot as usize] = value;
+                    let value = self.stack.last().unwrap();
+                    self.stack[slot as usize] = *value;
                 }
                 OpCode::JumpIfFalse => {
                     let offset = u16::from_be_bytes([read_byte!(), read_byte!()]);
-                    if Self::is_falsey(self.stack.last().unwrap().clone()) {
+                    if Self::is_falsey(*self.stack.last().unwrap()) {
                         self.frames.last_mut().unwrap().ip += offset as usize;
                     }
                 }
@@ -289,7 +289,7 @@ impl Vm {
                 OpCode::Call => {
                     let args_count = read_byte!();
                     let base = self.stack.len() - 1 - args_count as usize;
-                    let function = self.stack[base].clone();
+                    let function = self.stack[base];
                     match function {
                         Value::Function(f) => {
                             let arity = self.objects.get_function(f).arity;

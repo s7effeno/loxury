@@ -230,7 +230,7 @@ impl TryFrom<u8> for OpCode {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Value {
     Bool(bool),
     Nil,
