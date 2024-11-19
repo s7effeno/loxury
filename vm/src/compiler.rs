@@ -285,7 +285,7 @@ impl<'a, 't> Compiler<'a, 't> {
                 .sync(&coords.locate(CompileError::JumpTooWide).into());
         }
 
-        self.emit_byte((offset & 0xff00) as u8, coords);
+        self.emit_byte(((offset & 0xff00) >> 8) as u8, coords);
         self.emit_byte((offset & 0xff) as u8, coords);
     }
 
