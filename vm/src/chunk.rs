@@ -238,10 +238,7 @@ pub enum Value {
     String(GcHandle<String>),
     Function(GcHandle<Function>),
     // TODO: ensure not wrapping is ok
-    NativeFunction{
-        arity: u8,
-        f: fn(&[Value]) -> Value,
-    },
+    NativeFunction { arity: u8, f: fn(&[Value]) -> Value },
 }
 
 impl Value {

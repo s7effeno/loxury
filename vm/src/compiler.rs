@@ -10,7 +10,6 @@ use crate::{ArrayVec, CompileError};
 use std::iter::Peekable;
 use std::mem;
 
-
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Precedence {
     None,
@@ -148,13 +147,13 @@ impl<'a, 't> Compiler<'a, 't> {
     pub fn with_lexer<'b>(
         lexer: &'b mut Peekable<Lexer<'t>>,
         objects: &'b mut Manager,
-        function_kind: FunctionKind
+        function_kind: FunctionKind,
     ) -> Compiler<'b, 't> {
         let mut locals = Locals::new();
         // FIXME: move to `Locals::new`?
         let _ = locals.try_push("");
         Compiler {
-            lexer ,
+            lexer,
             locals,
             errors: Errors::new(),
             objects,
@@ -174,7 +173,10 @@ impl<'a, 't> Compiler<'a, 't> {
             let _ = self.compiling_function.chunk.disassemble(self.objects);
 
             // FIXME: better use `take`
-            let ret = mem::replace(&mut self.compiling_function, Function::new(FunctionKind::Function));
+            let ret = mem::replace(
+                &mut self.compiling_function,
+                Function::new(FunctionKind::Function),
+            );
             Ok(ret)
         } else {
             Err(())
@@ -407,7 +409,8 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn return_statement(&mut self, coords: Coords) {
         if let FunctionKind::Script = self.compiling_function.kind {
-            self.errors.report(&coords.locate(CompileError::TopLevelReturn).into());
+            self.errors
+                .report(&coords.locate(CompileError::TopLevelReturn).into());
         }
 
         if self.next_token_if_eq(TokenKind::Semicolon).is_some() {
@@ -439,7 +442,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn identifier_constant(&mut self, name: String) -> u8 {
-        let value = self.objects.new_string(name);
+        let value = self.objects.add(name);
         self.make_constant(Value::String(value))
     }
 
@@ -491,9 +494,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn for_statement(&mut self, coords: Coords) {
-
         self.begin_scope();
-
         self.consume(TokenKind::LeftParen, CompileError::ExpectedControlLeftParen);
 
         if self.next_token_if_eq(TokenKind::Var).is_some() {
@@ -534,56 +535,6 @@ impl<'a, 't> Compiler<'a, 't> {
         });
 
         self.end_scope(coords);
-        // if self.next_token_if_eq(TokenKind::Semicolon).is_some() {
-        // } else if self.next_token_if_eq(TokenKind::Var).is_some() {
-        //     self.var_declaration();
-        // } else {
-        //     self.expression_statement();
-        // }
-
-        // let mut loop_start = self.current_chunk().len();
-        // let exit = if self.next_token_if_eq(TokenKind::Semicolon).is_none() {
-        //     self.expression();
-        //     // FIXME: error not ideal
-        //     if let Some(coords) = self
-        //         .consume(TokenKind::Semicolon, CompileError::UnclosedStatement)
-        //         .map(|t| t.coords())
-        //     {
-        //         let jump = self.emit_jump(OpCode::JumpIfFalse, coords);
-        //         self.emit_op(OpCode::Pop, coords);
-        //         Some((coords, jump))
-        //     } else {
-        //         None
-        //     }
-        // } else {
-        //     None
-        // };
-
-        // if self.next_token_if_eq(TokenKind::RightParen).is_none() {
-        //     if let Some(coords) = self.peek_token().map(|t| t.coords()) {
-        //         let body_jump = self.emit_jump(OpCode::Jump, coords);
-        //         let increment_start = self.current_chunk().len();
-        //         self.expression();
-        //         self.emit_op(OpCode::Pop, coords);
-        //         self.emit_loop(loop_start, coords);
-        //         loop_start = increment_start;
-        //         self.patch_jump(body_jump);
-        //     }
-        //     self.consume(
-        //         TokenKind::RightParen,
-        //         CompileError::ExpectedControlRightParen,
-        //     );
-        // }
-
-        // self.statement();
-        // self.emit_loop(loop_start, coords);
-
-        // if let Some((coords, jump)) = exit {
-        //     self.patch_jump(jump);
-        //     self.emit_op(OpCode::Pop, coords);
-        // }
-
-        // self.end_scope(coords);
     }
 
     fn if_statement(&mut self, coords: Coords) {
@@ -618,16 +569,24 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn function(&mut self, kind: FunctionKind, coords: Coords, name: &str) {
         let mut function = {
-            let mut compiler = Self::with_lexer(&mut self.lexer, &mut self.objects, FunctionKind::Function);
+            let mut compiler =
+                Self::with_lexer(&mut self.lexer, &mut self.objects, FunctionKind::Function);
             compiler.begin_scope();
             compiler.consume(TokenKind::LeftParen, CompileError::UnopenedArgumentsList);
-            if let Some(coords) = compiler.peek_token().filter(|t| t.kind() != TokenKind::RightParen).map(|t| t.coords()) {
+            if let Some(coords) = compiler
+                .peek_token()
+                .filter(|t| t.kind() != TokenKind::RightParen)
+                .map(|t| t.coords())
+            {
                 loop {
                     compiler.compiling_function.arity += 1;
                     if compiler.compiling_function.arity > u8::MAX {
-                        self.errors.report(&coords.locate(CompileError::TooManyLocals).into())
+                        self.errors
+                            .report(&coords.locate(CompileError::TooManyLocals).into())
                     }
-                    if let Ok((constant, coords)) = compiler.parse_variable(CompileError::ExpectedVariableName) {
+                    if let Ok((constant, coords)) =
+                        compiler.parse_variable(CompileError::ExpectedVariableName)
+                    {
                         compiler.define_variable(constant, coords);
                     }
                     if compiler.next_token_if_eq(TokenKind::Comma).is_none() {
@@ -643,7 +602,10 @@ impl<'a, 't> Compiler<'a, 't> {
             compiler.current_chunk().write_nowhere(OpCode::Return as u8);
 
             self.errors.had_error |= compiler.errors.had_error;
-            mem::replace(&mut compiler.compiling_function, Function::new(FunctionKind::Function))
+            mem::replace(
+                &mut compiler.compiling_function,
+                Function::new(FunctionKind::Function),
+            )
         };
 
         function.name = Some(name.into());
@@ -657,7 +619,13 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn fun_declaration<'b>(&'b mut self) {
-        let Some(name) = self.peek_token().filter(|t| t.kind() == TokenKind::Identifier).map(|t| t.span()) else { unreachable!() };
+        let Some(name) = self
+            .peek_token()
+            .filter(|t| t.kind() == TokenKind::Identifier)
+            .map(|t| t.span())
+        else {
+            unreachable!()
+        };
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
             self.locals.mark_initialized();
             self.function(FunctionKind::Function, coords, name);
@@ -676,7 +644,11 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn argument_list(&mut self) -> u8 {
         let mut count = 0;
-        if self.peek_token().filter(|t| t.kind() == TokenKind::RightParen).is_none() {
+        if self
+            .peek_token()
+            .filter(|t| t.kind() == TokenKind::RightParen)
+            .is_none()
+        {
             loop {
                 self.expression();
                 count += 1;
@@ -842,7 +814,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn string(&mut self, token: &AtCoords<Token<'_>>) {
-        let s = self.objects.new_string(token.span().to_owned());
+        let s = self.objects.add(token.span().to_owned());
         self.emit_constant(Value::String(s), token.coords())
     }
 

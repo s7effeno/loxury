@@ -41,25 +41,27 @@ impl Vm {
             globals: HashMap::new(),
             objects: Manager::new(),
         };
-        ret.define_native("clock", 0, |_| { Value::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64) });
+        ret.define_native("clock", 0, |_| {
+            Value::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64)
+        });
         ret
     }
 
     pub fn define_native(&mut self, name: &str, arity: u8, f: fn(&[Value]) -> Value) {
-        let name = self.objects.new_string(name.to_owned());
+        let name = self.objects.add(name.to_owned());
         self.stack.push(Value::String(name));
-        self.globals.insert(
-            name,
-            Value::NativeFunction {
-                arity,
-                f,
-            }
-        );
+        self.globals
+            .insert(name, Value::NativeFunction { arity, f });
         self.stack.pop();
     }
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
-        let function = Compiler::with_lexer(&mut Lexer::new(source).peekable(), &mut self.objects, FunctionKind::Script).compile()?;
+        let function = Compiler::with_lexer(
+            &mut Lexer::new(source).peekable(),
+            &mut self.objects,
+            FunctionKind::Script,
+        )
+        .compile()?;
         let function = self.objects.new_function(function);
 
         self.frames.push(CallFrame::new(function, 0));
@@ -144,9 +146,8 @@ impl Vm {
                             self.stack.push(Value::Number(a + b))
                         }
                         (Value::String(a), Value::String(b)) => {
-                            let value =
-                                self.objects.get_string(a).to_owned() + self.objects.get_string(b);
-                            let value = self.objects.new_string(value);
+                            let value = self.objects.get(a).to_owned() + &*self.objects.get(b);
+                            let value = self.objects.add(value);
                             self.stack.push(Value::String(value));
                         }
                         _ => return self.error(RunError::ExpectedNumbersOrStrings),
@@ -245,7 +246,7 @@ impl Vm {
                     if let Some(value) = self.globals.get(&name) {
                         self.stack.push(value.clone());
                     } else {
-                        let name = self.objects.get_string(name).into();
+                        let name = self.objects.get(name).into();
                         return self.error(RunError::UndefinedVariable(name));
                     }
                 }
@@ -255,7 +256,7 @@ impl Vm {
                         let new_value = self.stack.last().unwrap().clone();
                         *value = new_value;
                     } else {
-                        let name = self.objects.get_string(name).into();
+                        let name = self.objects.get(name).into();
                         return self.error(RunError::UndefinedVariable(name));
                     }
                 }
@@ -297,7 +298,7 @@ impl Vm {
                             }
                             self.frames.push(CallFrame::new(f, base));
                         }
-                        Value::NativeFunction{ arity, f } => {
+                        Value::NativeFunction { arity, f } => {
                             if arity != args_count {
                                 self.error(RunError::WrongArity(arity, args_count))?;
                             }
