@@ -68,7 +68,7 @@ impl Vm {
             FunctionKind::Script,
         )
         .compile()?;
-        let function = self.objects.new_function(function);
+        let function = self.objects.add(function);
 
         self.frames.push(CallFrame::new(function, 0));
         self.stack.push(Value::Function(function));
@@ -85,7 +85,7 @@ impl Vm {
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
         let ip = self.current_frame().ip;
         let function = self.current_frame().function;
-        let function = self.objects.get_function(function);
+        let function = self.objects.get(function);
         Err(function.chunk.coords(ip).locate(error))
     }
 
@@ -102,13 +102,13 @@ impl Vm {
             macro_rules! function {
                 () => {{
                     let function = self.frames.last().unwrap().function;
-                    self.objects.get_function(function)
+                    self.objects.get(function)
                 }};
             }
             macro_rules! read_byte {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
-                    let function = self.objects.get_function(frame.function);
+                    let function = self.objects.get(frame.function);
                     let ip = frame.ip;
                     let ret = function.chunk.byte_at(ip);
                     frame.ip += 1;
@@ -298,7 +298,7 @@ impl Vm {
                     let function = self.stack[base];
                     match function {
                         Value::Function(f) => {
-                            let arity = self.objects.get_function(f).arity;
+                            let arity = self.objects.get(f).arity;
                             if arity != args_count {
                                 self.error(RunError::WrongArity(arity, args_count))?;
                             }

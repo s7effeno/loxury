@@ -3,7 +3,7 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::chunk::{Function, FunctionKind, Value};
+use crate::chunk::{Function, FunctionKind, Value, Closure};
 
 #[derive(Debug)]
 pub struct GcHandle<T> {
@@ -42,6 +42,10 @@ pub trait Gc {
     fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
     where
         Self: Sized;
+
+    /*fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
+    where
+        Self: Sized;*/
 }
 
 impl<T> GcHandle<T> {
@@ -58,6 +62,7 @@ impl<T> GcHandle<T> {
 pub struct Manager {
     strings: Vec<String>,
     functions: Vec<Function>,
+    closures: Vec<Closure>,
 }
 
 impl Manager {
@@ -65,6 +70,7 @@ impl Manager {
         Self {
             strings: Vec::new(),
             functions: Vec::new(),
+            closures: Vec::new(),
         }
     }
 
@@ -75,6 +81,10 @@ impl Manager {
     pub fn get<T: Gc>(&self, handle: GcHandle<T>) -> &T {
         T::get(self, handle)
     }
+
+    /*pub fn get_mut<T: Gc>(&mut self, handle: GcHandle<T>) -> &mut T {
+        T::get_mut(self, handle)
+    }*/
 }
 
 impl Gc for String {
@@ -96,22 +106,53 @@ impl Gc for String {
     {
         &manager.strings[handle.idx]
     }
+
+    /*fn get_mut(_manager: &mut Manager, _handle: GcHandle<Self>) -> &mut Self
+    where
+        Self: Sized {
+            unimplemented!()
+    }*/
+}
+
+impl Gc for Function {
+    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
+    where
+        Self: Sized,
+    {
+        manager.functions.push(value);
+        GcHandle::new(manager.functions.len() - 1)
+    }
+
+    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
+    where
+        Self: Sized,
+    {
+        &manager.functions[handle.idx]
+    }
+
+    /*fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
+    where
+        Self: Sized {
+            &mut manager.functions[handle.idx]
+    }*/
+}
+
+impl Gc for Closure {
+    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
+    where
+        Self: Sized {
+            manager.closures.push(value);
+            GcHandle::new(manager.closures.len() - 1)
+    }
+
+    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
+    where
+        Self: Sized {
+            &manager.closures[handle.idx]
+    }
 }
 
 impl Manager {
-    pub fn new_function(&mut self, function: Function) -> GcHandle<Function> {
-        self.functions.push(function);
-        GcHandle::new(self.functions.len() - 1)
-    }
-
-    pub fn get_function_mut(&mut self, f: GcHandle<Function>) -> &mut Function {
-        unsafe { self.functions.get_unchecked_mut(f.idx) }
-    }
-
-    pub fn get_function(&self, f: GcHandle<Function>) -> &Function {
-        unsafe { self.functions.get_unchecked(f.idx) }
-    }
-
     // TODO: move to better place(?)
     pub fn print_value(&self, value: Value) {
         match value {
@@ -123,7 +164,7 @@ impl Manager {
                 print!("{v}")
             }
             Value::Function(v) => {
-                let v = self.get_function(v);
+                let v = self.get(v);
                 print!("{v}")
             }
             Value::NativeFunction { .. } => {

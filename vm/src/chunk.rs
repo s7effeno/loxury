@@ -1,6 +1,6 @@
 use std::fmt::{self, Display};
 
-use crate::gc::{GcHandle, Manager};
+use crate::gc::{GcHandle, Manager, Gc};
 use crate::location::Coords;
 
 #[derive(Debug)]
@@ -283,4 +283,8 @@ impl Display for Function {
             None => write!(f, "<script>"),
         }
     }
+}
+
+pub struct Closure {
+    function: GcHandle<Function>,
 }

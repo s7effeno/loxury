@@ -2,7 +2,7 @@
 // TODO: maybe bind function name to FunctionKind::Function
 
 use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
-use crate::gc::{GcHandle, Manager};
+use crate::gc::Manager;
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::{ArrayVec, CompileError};
@@ -613,7 +613,7 @@ impl<'a, 't> Compiler<'a, 't> {
         println!("---{}---", function);
         let _ = function.chunk.disassemble(self.objects);
 
-        let function = self.objects.new_function(function);
+        let function = self.objects.add(function);
 
         self.emit_constant(Value::Function(function), coords);
     }
