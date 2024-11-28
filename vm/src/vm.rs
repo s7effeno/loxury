@@ -1,6 +1,6 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
-use crate::chunk::{Function, FunctionKind, OpCode, Value};
+use crate::chunk::{Closure, Function, FunctionKind, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::gc::{GcHandle, Manager};
 use crate::lex::Lexer;
@@ -11,15 +11,15 @@ use std::collections::HashMap;
 use std::time::UNIX_EPOCH;
 
 struct CallFrame {
-    function: GcHandle<Function>,
+    closure: GcHandle<Closure>,
     ip: usize,
     base: usize,
 }
 
 impl CallFrame {
-    fn new(function: GcHandle<Function>, base: usize) -> Self {
+    fn new(closure: GcHandle<Closure>, base: usize) -> Self {
         Self {
-            function,
+            closure,
             base,
             ip: 0,
         }
@@ -69,9 +69,10 @@ impl Vm {
         )
         .compile()?;
         let function = self.objects.add(function);
+        let closure = self.objects.add(Closure::new(function));
 
-        self.frames.push(CallFrame::new(function, 0));
-        self.stack.push(Value::Function(function));
+        self.frames.push(CallFrame::new(closure, 0));
+        self.stack.push(Value::Closure(closure));
         self.execute().map_err(|e| {
             println!("{e}");
             ()
@@ -84,7 +85,8 @@ impl Vm {
 
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
         let ip = self.current_frame().ip;
-        let function = self.current_frame().function;
+        let closure = self.current_frame().closure;
+        let function = self.objects.get(closure).function;
         let function = self.objects.get(function);
         Err(function.chunk.coords(ip).locate(error))
     }
@@ -99,16 +101,11 @@ impl Vm {
 
     fn execute(&mut self) -> Result<(), AtCoords<RunError>> {
         loop {
-            macro_rules! function {
-                () => {{
-                    let function = self.frames.last().unwrap().function;
-                    self.objects.get(function)
-                }};
-            }
             macro_rules! read_byte {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
-                    let function = self.objects.get(frame.function);
+                    let closure = self.objects.get(frame.closure);
+                    let function = self.objects.get(closure.function);
                     let ip = frame.ip;
                     let ret = function.chunk.byte_at(ip);
                     frame.ip += 1;
@@ -121,9 +118,13 @@ impl Vm {
                 };
             }
             macro_rules! read_constant {
-                () => {
-                    function!().chunk.get_constant(read_byte!())
-                };
+                () => {{
+                    let frame = self.frames.last_mut().unwrap();
+                    let closure = self.objects.get(frame.closure);
+                    let function = self.objects.get(closure.function);
+                    // let index = read_byte!();
+                    function.chunk.get_constant(read_byte!())
+                }};
             }
             // TODO: add macro for binary expressions
             match read_byte!().try_into().unwrap() {
@@ -295,15 +296,7 @@ impl Vm {
                 OpCode::Call => {
                     let args_count = read_byte!();
                     let base = self.stack.len() - 1 - args_count as usize;
-                    let function = self.stack[base];
-                    match function {
-                        Value::Function(f) => {
-                            let arity = self.objects.get(f).arity;
-                            if arity != args_count {
-                                self.error(RunError::WrongArity(arity, args_count))?;
-                            }
-                            self.frames.push(CallFrame::new(f, base));
-                        }
+                    match self.stack[base] {
                         Value::NativeFunction { arity, f } => {
                             if arity != args_count {
                                 self.error(RunError::WrongArity(arity, args_count))?;
@@ -314,8 +307,22 @@ impl Vm {
                             }
                             self.stack.push(result);
                         }
+                        Value::Closure(c) => {
+                            let closure = self.objects.get(c);
+                            let arity = self.objects.get(closure.function).arity;
+                            if arity != args_count {
+                                self.error(RunError::WrongArity(arity, args_count))?;
+                            }
+                            self.frames.push(CallFrame::new(c, base));
+                        }
                         _ => self.error(RunError::NotCallable)?,
                     }
+                }
+                OpCode::Closure => {
+                    let function = read_constant!().try_as_function().unwrap();
+                    let closure = Closure::new(function);
+                    let closure = self.objects.add(closure);
+                    self.stack.push(Value::Closure(closure));
                 }
             }
         }

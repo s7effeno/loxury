@@ -170,6 +170,11 @@ impl Manager {
             Value::NativeFunction { .. } => {
                 print!("<native fn>")
             }
+            Value::Closure(v) => {
+                let function = self.get(v).function;
+                let function = self.get(function);
+                print!("{function}");
+            }
         }
     }
 }

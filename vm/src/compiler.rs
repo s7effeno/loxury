@@ -1,7 +1,7 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 // TODO: maybe bind function name to FunctionKind::Function
 
-use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Value};
+use crate::chunk::{Chunk, Closure, Function, FunctionKind, OpCode, Value};
 use crate::gc::Manager;
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
@@ -298,7 +298,8 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn emit_constant(&mut self, value: Value, coords: Coords) {
         let constant = self.make_constant(value);
-        self.emit_bytes(OpCode::Constant as u8, constant, coords);
+        self.emit_op(OpCode::Constant, coords);
+        self.emit_byte(constant, coords);
     }
 
     fn patch_jump(&mut self, offset: usize) {
@@ -615,7 +616,9 @@ impl<'a, 't> Compiler<'a, 't> {
 
         let function = self.objects.add(function);
 
-        self.emit_constant(Value::Function(function), coords);
+        self.emit_op(OpCode::Closure, coords);
+        let function = self.make_constant(Value::Function(function));
+        self.emit_byte(function, coords);
     }
 
     fn fun_declaration<'b>(&'b mut self) {

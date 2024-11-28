@@ -7,7 +7,7 @@ use crate::location::Coords;
 pub struct Chunk {
     code: Vec<u8>,
     coords: Vec<Coords>,
-    constants: Vec<Value>,
+    pub constants: Vec<Value>,
 }
 
 impl Chunk {
@@ -161,6 +161,9 @@ impl Chunk {
                 OpCode::Call => {
                     byte!("call")
                 }
+                OpCode::Closure => {
+                    constant!("closure")
+                }
             }
         }
         Ok(())
@@ -192,6 +195,7 @@ pub enum OpCode {
     JumpIfFalse,
     Loop,
     Call,
+    Closure,
     Return,
 }
 
@@ -224,7 +228,8 @@ impl TryFrom<u8> for OpCode {
             21 => Ok(Self::JumpIfFalse),
             22 => Ok(Self::Loop),
             23 => Ok(Self::Call),
-            24 => Ok(Self::Return),
+            24 => Ok(Self::Closure),
+            25 => Ok(Self::Return),
             _ => Err(()),
         }
     }
@@ -239,11 +244,20 @@ pub enum Value {
     Function(GcHandle<Function>),
     // TODO: ensure not wrapping is ok
     NativeFunction { arity: u8, f: fn(&[Value]) -> Value },
+    Closure(GcHandle<Closure>),
 }
 
 impl Value {
     pub fn try_as_string(&self) -> Result<GcHandle<String>, ()> {
         if let Self::String(v) = self {
+            Ok(*v)
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn try_as_function(&self) -> Result<GcHandle<Function>, ()> {
+        if let Self::Function(v) = self {
             Ok(*v)
         } else {
             Err(())
@@ -285,6 +299,15 @@ impl Display for Function {
     }
 }
 
+#[derive(Debug)]
 pub struct Closure {
-    function: GcHandle<Function>,
+    pub function: GcHandle<Function>,
+}
+
+impl Closure {
+    pub fn new(function: GcHandle<Function>) -> Self {
+        Self {
+            function
+        }
+    }
 }
