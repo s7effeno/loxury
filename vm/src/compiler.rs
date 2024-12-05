@@ -1,7 +1,7 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 // TODO: maybe bind function name to FunctionKind::Function
 
-use crate::chunk::{Chunk, Closure, Function, FunctionKind, OpCode, Value};
+use crate::chunk::{Chunk, Closure, Function, FunctionKind, OpCode, Upvalue, Value};
 use crate::gc::Manager;
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
@@ -140,6 +140,8 @@ pub struct Compiler<'a, 't> {
     objects: &'a mut Manager,
     compiling_function: Function,
     locals: Locals<'a>,
+    upvalues: ArrayVec<Upvalue, { u8::MAX as usize + 1 }>,
+    enclosing: Option<&'a Locals<'a>>,
     errors: Errors,
 }
 
@@ -147,6 +149,7 @@ impl<'a, 't> Compiler<'a, 't> {
     pub fn with_lexer<'b>(
         lexer: &'b mut Peekable<Lexer<'t>>,
         objects: &'b mut Manager,
+        enclosing: Option<&'b Locals<'a>>,
         function_kind: FunctionKind,
     ) -> Compiler<'b, 't> {
         let mut locals = Locals::new();
@@ -155,6 +158,8 @@ impl<'a, 't> Compiler<'a, 't> {
         Compiler {
             lexer,
             locals,
+            enclosing,
+            upvalues: ArrayVec::new(),
             errors: Errors::new(),
             objects,
             compiling_function: Function::new(function_kind),
@@ -521,7 +526,10 @@ impl<'a, 't> Compiler<'a, 't> {
             let increment_start = self.current_chunk().len();
             self.expression();
             self.emit_op(OpCode::Pop, coords);
-            self.consume(TokenKind::RightParen, CompileError::ExpectedControlRightParen);
+            self.consume(
+                TokenKind::RightParen,
+                CompileError::ExpectedControlRightParen,
+            );
             self.emit_loop(loop_start, coords);
             loop_start = increment_start;
             self.patch_jump(to_body);
@@ -570,8 +578,12 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn function(&mut self, kind: FunctionKind, coords: Coords, name: &str) {
         let mut function = {
-            let mut compiler =
-                Self::with_lexer(&mut self.lexer, &mut self.objects, FunctionKind::Function);
+            let mut compiler = Self::with_lexer(
+                &mut self.lexer,
+                &mut self.objects,
+                Some(&self.locals),
+                FunctionKind::Function,
+            );
             compiler.begin_scope();
             compiler.consume(TokenKind::LeftParen, CompileError::UnopenedArgumentsList);
             if let Some(coords) = compiler
@@ -832,6 +844,39 @@ impl<'a, 't> Compiler<'a, 't> {
                 0
             }
         })
+    }
+
+    fn add_upvalue(&mut self, index: u8, is_local: bool, coords: Coords) -> u8 {
+        let upvalue = Upvalue::new(index, is_local);
+        if let Some((i, _)) = self
+            .upvalues
+            .iter()
+            .enumerate()
+            .find(|(_, u)| *u == &upvalue)
+        {
+            i as u8
+        } else {
+            if self.upvalues.len() == u8::MAX as usize + 1 {
+                self.errors
+                    .report(&coords.locate(CompileError::TooManyUpvalues).into())
+            }
+            self.upvalues.push(upvalue);
+            self.upvalues.len() as u8 - 1
+        }
+    }
+
+    fn resolve_upvalue(&mut self, name: &AtCoords<Token<'_>>) -> Option<u8> {
+        if let Some(enclosing) = self.enclosing {
+            if let Ok(Some(local)) = enclosing.resolve(name.span()) {
+                Some(self.add_upvalue(local, true, name.coords()))
+            } else {
+                None
+            }
+        } else {
+            todo!()
+            // let upvalue = self.enclosing.
+            None
+        }
     }
 
     fn named_variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {

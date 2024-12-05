@@ -31,6 +31,7 @@ pub enum CompileError {
     JumpTooWide,
     ExpectedForClauseSeparator,
     TopLevelReturn,
+    TooManyUpvalues,
 }
 
 impl Display for CompileError {
@@ -61,6 +62,7 @@ impl Display for CompileError {
             Self::UnclosedArgumentsList => write!(f, "expected ')' after arguments"),
             Self::UnopenedArgumentsList => write!(f, "expected '(' before arguments"),
             Self::TopLevelReturn => write!(f, "can't return from top-level code"),
+            Self::TooManyUpvalues => write!(f, "can't have more than 256 closure variables"),
         }
     }
 }

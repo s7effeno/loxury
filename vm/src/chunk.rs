@@ -1,6 +1,6 @@
 use std::fmt::{self, Display};
 
-use crate::gc::{GcHandle, Manager, Gc};
+use crate::gc::{Gc, GcHandle, Manager};
 use crate::location::Coords;
 
 #[derive(Debug)]
@@ -181,6 +181,8 @@ pub enum OpCode {
     GetGlobal,
     DefineGlobal,
     SetGlobal,
+    GetUpvalue,
+    SetUpvalue,
     Equal,
     Greater,
     Less,
@@ -214,22 +216,24 @@ impl TryFrom<u8> for OpCode {
             7 => Ok(Self::GetGlobal),
             8 => Ok(Self::DefineGlobal),
             9 => Ok(Self::SetGlobal),
-            10 => Ok(Self::Equal),
-            11 => Ok(Self::Greater),
-            12 => Ok(Self::Less),
-            13 => Ok(Self::Add),
-            14 => Ok(Self::Subtract),
-            15 => Ok(Self::Multiply),
-            16 => Ok(Self::Divide),
-            17 => Ok(Self::Not),
-            18 => Ok(Self::Negate),
-            19 => Ok(Self::Print),
-            20 => Ok(Self::Jump),
-            21 => Ok(Self::JumpIfFalse),
-            22 => Ok(Self::Loop),
-            23 => Ok(Self::Call),
-            24 => Ok(Self::Closure),
-            25 => Ok(Self::Return),
+            10 => Ok(Self::GetUpvalue),
+            11 => Ok(Self::SetUpvalue),
+            12 => Ok(Self::Equal),
+            13 => Ok(Self::Greater),
+            14 => Ok(Self::Less),
+            15 => Ok(Self::Add),
+            16 => Ok(Self::Subtract),
+            17 => Ok(Self::Multiply),
+            18 => Ok(Self::Divide),
+            19 => Ok(Self::Not),
+            20 => Ok(Self::Negate),
+            21 => Ok(Self::Print),
+            22 => Ok(Self::Jump),
+            23 => Ok(Self::JumpIfFalse),
+            24 => Ok(Self::Loop),
+            25 => Ok(Self::Call),
+            26 => Ok(Self::Closure),
+            27 => Ok(Self::Return),
             _ => Err(()),
         }
     }
@@ -306,8 +310,18 @@ pub struct Closure {
 
 impl Closure {
     pub fn new(function: GcHandle<Function>) -> Self {
-        Self {
-            function
-        }
+        Self { function }
+    }
+}
+
+#[derive(Ord, PartialOrd, PartialEq, Eq)]
+pub struct Upvalue {
+    index: u8,
+    is_local: bool,
+}
+
+impl Upvalue {
+    pub fn new(index: u8, is_local: bool) -> Self {
+        Self { index, is_local }
     }
 }
