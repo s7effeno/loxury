@@ -138,31 +138,41 @@ impl Errors {
 pub struct Compiler<'a, 't> {
     lexer: &'a mut Peekable<Lexer<'t>>,
     objects: &'a mut Manager,
-    compiling_function: Function,
-    locals: Locals<'a>,
-    upvalues: ArrayVec<Upvalue, { u8::MAX as usize + 1 }>,
-    enclosing: Option<&'a Locals<'a>>,
+    frame: CompilationFrame<'a>,
     errors: Errors,
 }
 
+pub struct CompilationFrame<'a> {
+    function: Function,
+    locals: Locals<'a>,
+    upvalues: ArrayVec<Upvalue, {u8::MAX as usize + 1}>,
+    enclosing: Option<Box<CompilationFrame<'a>>>,
+}
+
+impl CompilationFrame<'_> {
+    fn new(function_kind: FunctionKind) -> Self {
+        let mut locals = Locals::new();
+        let _ = locals.try_push("");
+        Self {
+            function: Function::new(function_kind),
+            upvalues: ArrayVec::new(),
+            enclosing: None,
+            locals,
+        }
+    }
+}
+
 impl<'a, 't> Compiler<'a, 't> {
-    pub fn with_lexer<'b>(
+    pub fn new<'b>(
         lexer: &'b mut Peekable<Lexer<'t>>,
         objects: &'b mut Manager,
-        enclosing: Option<&'b Locals<'a>>,
         function_kind: FunctionKind,
     ) -> Compiler<'b, 't> {
-        let mut locals = Locals::new();
-        // FIXME: move to `Locals::new`?
-        let _ = locals.try_push("");
         Compiler {
             lexer,
-            locals,
-            enclosing,
-            upvalues: ArrayVec::new(),
-            errors: Errors::new(),
             objects,
-            compiling_function: Function::new(function_kind),
+            frame: CompilationFrame::new(function_kind),
+            errors: Errors::new(),
         }
     }
 
@@ -174,14 +184,10 @@ impl<'a, 't> Compiler<'a, 't> {
             self.current_chunk().write_nowhere(OpCode::Nil as u8);
             self.current_chunk().write_nowhere(OpCode::Return as u8);
 
-            println!("---{}---", self.compiling_function);
-            let _ = self.compiling_function.chunk.disassemble(self.objects);
+            println!("---{}---", self.frame.function);
+            let _ = self.frame.function.chunk.disassemble(self.objects);
 
-            // FIXME: better use `take`
-            let ret = mem::replace(
-                &mut self.compiling_function,
-                Function::new(FunctionKind::Function),
-            );
+            let ret = mem::replace(&mut self.frame.function, Function::new(FunctionKind::Script));
             Ok(ret)
         } else {
             Err(())
@@ -322,7 +328,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.compiling_function.chunk
+        &mut self.frame.function.chunk
     }
 
     fn make_constant(&mut self, value: Value) -> u8 {
@@ -336,11 +342,11 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn begin_scope(&mut self) {
-        self.locals.begin_scope()
+        self.frame.locals.begin_scope()
     }
 
     fn end_scope(&mut self, coords: Coords) {
-        for _ in 0..self.locals.end_scope() {
+        for _ in 0..self.frame.locals.end_scope() {
             self.emit_op(OpCode::Pop, coords);
         }
     }
@@ -414,7 +420,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn return_statement(&mut self, coords: Coords) {
-        if let FunctionKind::Script = self.compiling_function.kind {
+        if let FunctionKind::Script = self.frame.function.kind {
             self.errors
                 .report(&coords.locate(CompileError::TopLevelReturn).into());
         }
@@ -453,19 +459,19 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
-        if let Err(()) = self.locals.try_push(name.span()) {
+        if let Err(()) = self.frame.locals.try_push(name.span()) {
             self.errors
                 .sync(&name.co_locate(CompileError::TooManyLocals));
         }
     }
 
     fn declare_variable(&mut self, name: AtCoords<Token<'a>>) {
-        if self.locals.scope_depth == 0 {
+        if self.frame.locals.scope_depth == 0 {
             return;
         }
         let span = name.span().to_owned();
 
-        if self.locals.is_unique(&span) {
+        if self.frame.locals.is_unique(&span) {
             self.add_local(name);
         } else {
             self.errors
@@ -479,7 +485,7 @@ impl<'a, 't> Compiler<'a, 't> {
             // `span` should be put inside `else`
             let span = identifier.span().into();
             self.declare_variable(identifier);
-            if self.locals.scope_depth > 0 {
+            if self.frame.locals.scope_depth > 0 {
                 Ok((0, coords))
             } else {
                 Ok((self.identifier_constant(span), coords))
@@ -576,50 +582,52 @@ impl<'a, 't> Compiler<'a, 't> {
         self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
     }
 
+    fn nest(&mut self, kind: FunctionKind) {
+        let frame = CompilationFrame::new(kind);
+        let enclosing = mem::replace(&mut self.frame, frame);
+        self.frame.enclosing = Some(enclosing.into());
+    }
+
+    fn unnest(&mut self) -> Function {
+        let enclosing = mem::take(&mut self.frame.enclosing).unwrap();
+        let function = mem::replace(&mut self.frame.function, Function::new(FunctionKind::Function));
+        self.frame = *enclosing;
+        function
+    }
+
     fn function(&mut self, kind: FunctionKind, coords: Coords, name: &str) {
-        let mut function = {
-            let mut compiler = Self::with_lexer(
-                &mut self.lexer,
-                &mut self.objects,
-                Some(&self.locals),
-                FunctionKind::Function,
-            );
-            compiler.begin_scope();
-            compiler.consume(TokenKind::LeftParen, CompileError::UnopenedArgumentsList);
-            if let Some(coords) = compiler
+            self.nest(kind);
+            self.begin_scope();
+            self.consume(TokenKind::LeftParen, CompileError::UnopenedArgumentsList);
+            if let Some(coords) = self
                 .peek_token()
                 .filter(|t| t.kind() != TokenKind::RightParen)
                 .map(|t| t.coords())
             {
                 loop {
-                    compiler.compiling_function.arity += 1;
-                    if compiler.compiling_function.arity > u8::MAX {
+                    self.frame.function.arity += 1;
+                    if self.frame.function.arity > u8::MAX {
                         self.errors
                             .report(&coords.locate(CompileError::TooManyLocals).into())
                     }
                     if let Ok((constant, coords)) =
-                        compiler.parse_variable(CompileError::ExpectedVariableName)
+                        self.parse_variable(CompileError::ExpectedVariableName)
                     {
-                        compiler.define_variable(constant, coords);
+                        self.define_variable(constant, coords);
                     }
-                    if compiler.next_token_if_eq(TokenKind::Comma).is_none() {
+                    if self.next_token_if_eq(TokenKind::Comma).is_none() {
                         break;
                     }
                 }
             }
-            compiler.consume(TokenKind::RightParen, CompileError::UnclosedArgumentsList);
-            compiler.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
-            compiler.block();
+            self.consume(TokenKind::RightParen, CompileError::UnclosedArgumentsList);
+            self.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
+            self.block();
 
-            compiler.current_chunk().write_nowhere(OpCode::Nil as u8);
-            compiler.current_chunk().write_nowhere(OpCode::Return as u8);
+            self.current_chunk().write_nowhere(OpCode::Nil as u8);
+            self.current_chunk().write_nowhere(OpCode::Return as u8);
 
-            self.errors.had_error |= compiler.errors.had_error;
-            mem::replace(
-                &mut compiler.compiling_function,
-                Function::new(FunctionKind::Function),
-            )
-        };
+        let mut function = self.unnest();
 
         function.name = Some(name.into());
 
@@ -642,15 +650,15 @@ impl<'a, 't> Compiler<'a, 't> {
             unreachable!()
         };
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {
-            self.locals.mark_initialized();
+            self.frame.locals.mark_initialized();
             self.function(FunctionKind::Function, coords, name);
             self.define_variable(global, coords);
         }
     }
 
     fn define_variable(&mut self, global: u8, coords: Coords) {
-        if self.locals.scope_depth > 0 {
-            self.locals.mark_initialized();
+        if self.frame.locals.scope_depth > 0 {
+            self.frame.locals.mark_initialized();
         } else {
             self.emit_op(OpCode::DefineGlobal, coords);
             self.emit_byte(global, coords);
@@ -834,7 +842,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Result<u8, ()> {
-        self.locals.resolve(name.span()).map(|p| match p {
+        self.frame.locals.resolve(name.span()).map(|p| match p {
             Some(p) => p as u8,
             None => {
                 self.errors.sync(&name.co_locate(
@@ -849,6 +857,7 @@ impl<'a, 't> Compiler<'a, 't> {
     fn add_upvalue(&mut self, index: u8, is_local: bool, coords: Coords) -> u8 {
         let upvalue = Upvalue::new(index, is_local);
         if let Some((i, _)) = self
+            .frame
             .upvalues
             .iter()
             .enumerate()
@@ -856,25 +865,23 @@ impl<'a, 't> Compiler<'a, 't> {
         {
             i as u8
         } else {
-            if self.upvalues.len() == u8::MAX as usize + 1 {
+            if self.frame.upvalues.len() == u8::MAX as usize + 1 {
                 self.errors
                     .report(&coords.locate(CompileError::TooManyUpvalues).into())
             }
-            self.upvalues.push(upvalue);
-            self.upvalues.len() as u8 - 1
+            self.frame.upvalues.push(upvalue);
+            self.frame.upvalues.len() as u8 - 1
         }
     }
 
     fn resolve_upvalue(&mut self, name: &AtCoords<Token<'_>>) -> Option<u8> {
-        if let Some(enclosing) = self.enclosing {
-            if let Ok(Some(local)) = enclosing.resolve(name.span()) {
+        if let Some(enclosing) = &self.frame.enclosing {
+            if let Ok(Some(local)) = enclosing.locals.resolve(name.span()) {
                 Some(self.add_upvalue(local, true, name.coords()))
             } else {
                 None
             }
         } else {
-            todo!()
-            // let upvalue = self.enclosing.
             None
         }
     }

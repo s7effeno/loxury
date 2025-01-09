@@ -62,7 +62,7 @@ impl Vm {
         self.stack = ArrayVec::new();
         self.frames = ArrayVec::new();
 
-        let function = Compiler::with_lexer(
+        let function = Compiler::new(
             &mut Lexer::new(source).peekable(),
             &mut self.objects,
             FunctionKind::Script,
@@ -324,6 +324,7 @@ impl Vm {
                     let closure = self.objects.add(closure);
                     self.stack.push(Value::Closure(closure));
                 }
+                OpCode::GetUpvalue | OpCode::SetUpvalue => todo!(),
             }
         }
     }

@@ -164,6 +164,7 @@ impl Chunk {
                 OpCode::Closure => {
                     constant!("closure")
                 }
+                OpCode::GetUpvalue | OpCode::SetUpvalue => todo!()
             }
         }
         Ok(())
