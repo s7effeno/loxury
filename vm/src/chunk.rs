@@ -164,7 +164,12 @@ impl Chunk {
                 OpCode::Closure => {
                     constant!("closure")
                 }
-                OpCode::GetUpvalue | OpCode::SetUpvalue => todo!()
+                OpCode::GetUpvalue => {
+                    byte!("get upvalue")
+                }
+                OpCode::SetUpvalue => {
+                    byte!("set upvalue")
+                }
             }
         }
         Ok(())
@@ -276,6 +281,8 @@ pub struct Function {
     pub chunk: Chunk,
     pub name: Option<String>,
     pub kind: FunctionKind,
+    // FIXME: u8?
+    pub upvalue_count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -290,6 +297,7 @@ impl Function {
             arity: 0,
             chunk: Chunk::new(),
             name: None,
+            upvalue_count: 0,
             kind,
         }
     }
@@ -307,11 +315,12 @@ impl Display for Function {
 #[derive(Debug)]
 pub struct Closure {
     pub function: GcHandle<Function>,
+    pub upvalues: Vec<ObjUpvalue>,
 }
 
 impl Closure {
     pub fn new(function: GcHandle<Function>) -> Self {
-        Self { function }
+        Self { function, upvalues: Vec::new()}
     }
 }
 
@@ -325,4 +334,9 @@ impl Upvalue {
     pub fn new(index: u8, is_local: bool) -> Self {
         Self { index, is_local }
     }
+}
+
+#[derive(Debug)]
+pub struct ObjUpvalue {
+    value: Value,
 }

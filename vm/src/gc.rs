@@ -3,7 +3,7 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::chunk::{Function, FunctionKind, Value, Closure};
+use crate::chunk::{Closure, Function, FunctionKind, Value};
 
 #[derive(Debug)]
 pub struct GcHandle<T> {
@@ -140,15 +140,17 @@ impl Gc for Function {
 impl Gc for Closure {
     fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
     where
-        Self: Sized {
-            manager.closures.push(value);
-            GcHandle::new(manager.closures.len() - 1)
+        Self: Sized,
+    {
+        manager.closures.push(value);
+        GcHandle::new(manager.closures.len() - 1)
     }
 
     fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
     where
-        Self: Sized {
-            &manager.closures[handle.idx]
+        Self: Sized,
+    {
+        &manager.closures[handle.idx]
     }
 }
 
