@@ -43,9 +43,9 @@ pub trait Gc {
     where
         Self: Sized;
 
-    /*fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
+    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
     where
-        Self: Sized;*/
+        Self: Sized;
 }
 
 impl<T> GcHandle<T> {
@@ -82,9 +82,9 @@ impl Manager {
         T::get(self, handle)
     }
 
-    /*pub fn get_mut<T: Gc>(&mut self, handle: GcHandle<T>) -> &mut T {
+    pub fn get_mut<T: Gc>(&mut self, handle: GcHandle<T>) -> &mut T {
         T::get_mut(self, handle)
-    }*/
+    }
 }
 
 impl Gc for String {
@@ -107,11 +107,12 @@ impl Gc for String {
         &manager.strings[handle.idx]
     }
 
-    /*fn get_mut(_manager: &mut Manager, _handle: GcHandle<Self>) -> &mut Self
+    fn get_mut(_manager: &mut Manager, _handle: GcHandle<Self>) -> &mut Self
     where
-        Self: Sized {
-            unimplemented!()
-    }*/
+        Self: Sized,
+    {
+        unimplemented!()
+    }
 }
 
 impl Gc for Function {
@@ -130,11 +131,12 @@ impl Gc for Function {
         &manager.functions[handle.idx]
     }
 
-    /*fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
+    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
     where
-        Self: Sized {
-            &mut manager.functions[handle.idx]
-    }*/
+        Self: Sized,
+    {
+        &mut manager.functions[handle.idx]
+    }
 }
 
 impl Gc for Closure {
@@ -151,6 +153,10 @@ impl Gc for Closure {
         Self: Sized,
     {
         &manager.closures[handle.idx]
+    }
+
+    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self {
+        &mut manager.closures[handle.idx]
     }
 }
 

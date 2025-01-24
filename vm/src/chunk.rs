@@ -162,7 +162,23 @@ impl Chunk {
                     byte!("call")
                 }
                 OpCode::Closure => {
-                    constant!("closure")
+                    // constant!("closure");
+                    let index = *bytes.next().unwrap().1 as usize;
+                    let arg = &self.constants[index];
+                    print!("closure {} ", index);
+                    objects.print_value(arg.clone());
+                    println!("");
+                    let function = arg.try_as_function().unwrap();
+                    let function = objects.get(function);
+                    for _ in 0..function.upvalue_count {
+                        let (addr, is_local) = bytes.next().unwrap();
+                        let (_, index) = bytes.next().unwrap();
+                        println!(
+                            "{addr} {} {}",
+                            (if *is_local == 1 { "local" } else { "upvalue" }),
+                            index
+                        )
+                    }
                 }
                 OpCode::GetUpvalue => {
                     byte!("get upvalue")
@@ -320,14 +336,17 @@ pub struct Closure {
 
 impl Closure {
     pub fn new(function: GcHandle<Function>) -> Self {
-        Self { function, upvalues: Vec::new()}
+        Self {
+            function,
+            upvalues: Vec::new(),
+        }
     }
 }
 
 #[derive(Ord, PartialOrd, PartialEq, Eq)]
 pub struct Upvalue {
-    index: u8,
-    is_local: bool,
+    pub index: u8,
+    pub is_local: bool,
 }
 
 impl Upvalue {
@@ -336,7 +355,13 @@ impl Upvalue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ObjUpvalue {
-    value: Value,
+    pub value: Value,
+}
+
+impl ObjUpvalue {
+    pub fn new(value: Value) -> Self {
+        Self { value }
+    }
 }

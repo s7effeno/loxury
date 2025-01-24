@@ -32,23 +32,32 @@ struct Locals<'a> {
     scope_depth: usize,
 }
 
+struct Local<'a> {
+    name: &'a str,
+    depth: Option<usize>,
+    is_captured: bool,
+}
+
 impl<'a> Locals<'a> {
     fn resolve(&self, name: &str) -> Result<Option<u8>, CompileError> {
-        self.locals
+        match self
+            .locals
             .iter()
             .enumerate()
             .rev()
             .find(|(_, (local, _))| local == &name)
-            .map(
-                |(p, (_, depth))| {
-                    if depth.is_none() {
-                        None
-                    } else {
-                        Some(p as u8)
-                    }
-                },
-            )
-            .ok_or(CompileError::SelfReferencialVariableInitializer(name.into()))
+        {
+            Some((p, (_, depth))) => {
+                if depth.is_none() {
+                    Err(CompileError::SelfReferencialVariableInitializer(
+                        name.into(),
+                    ))
+                } else {
+                    Ok(Some(p as u8))
+                }
+            }
+            None => Ok(None),
+        }
     }
 
     fn mark_initialized(&mut self) {
@@ -161,11 +170,15 @@ impl CompilationFrame<'_> {
         }
     }
 
-    fn resolve_upvalue(&mut self, name: &AtCoords<Token<'_>>) -> Result<Option<u8>, AtCoordsOrEof<CompileError>> {
+    fn resolve_upvalue(
+        &mut self,
+        name: &AtCoords<Token<'_>>,
+    ) -> Result<Option<u8>, AtCoordsOrEof<CompileError>> {
         if let Some(ref mut enclosing) = self.enclosing {
-            let local = enclosing.locals.resolve(name.span()).map_err(|_| name.co_locate(CompileError::SelfReferencialVariableInitializer(name.span().into())))?;
+            let local = enclosing.resolve_local(name)?;
             if let Some(local) = local {
-                self.add_upvalue(local, true, name.coords()).map(|u| Some(u))
+                self.add_upvalue(local, true, name.coords())
+                    .map(|u| Some(u))
             } else {
                 enclosing.resolve_upvalue(name)
             }
@@ -174,7 +187,12 @@ impl CompilationFrame<'_> {
         }
     }
 
-    fn add_upvalue(&mut self, index: u8, is_local: bool, coords: Coords) -> Result<u8, AtCoordsOrEof<CompileError>> {
+    fn add_upvalue(
+        &mut self,
+        index: u8,
+        is_local: bool,
+        coords: Coords,
+    ) -> Result<u8, AtCoordsOrEof<CompileError>> {
         let upvalue = Upvalue::new(index, is_local);
         if let Some((i, _)) = self
             .upvalues
@@ -188,13 +206,19 @@ impl CompilationFrame<'_> {
                 Err(coords.locate(CompileError::TooManyUpvalues).into())
             } else {
                 self.upvalues.push(upvalue);
+                self.function.upvalue_count += 1;
                 Ok(self.upvalues.len() as u8 - 1)
             }
         }
     }
 
-    fn resolve_local(&self, name: &AtCoords<Token<'_>>) -> Result<Option<u8>, AtCoordsOrEof<CompileError>> {
-        self.locals.resolve(name.span()).map_err(|e| name.co_locate(e))
+    fn resolve_local(
+        &self,
+        name: &AtCoords<Token<'_>>,
+    ) -> Result<Option<u8>, AtCoordsOrEof<CompileError>> {
+        self.locals
+            .resolve(name.span())
+            .map_err(|e| name.co_locate(e))
     }
 }
 
@@ -627,14 +651,10 @@ impl<'a, 't> Compiler<'a, 't> {
         self.frame.enclosing = Some(enclosing.into());
     }
 
-    fn unnest(&mut self) -> Function {
+    fn unnest(&mut self) -> (Function, ArrayVec<Upvalue, { u8::MAX as usize + 1 }>) {
         let enclosing = mem::take(&mut self.frame.enclosing).unwrap();
-        let function = mem::replace(
-            &mut self.frame.function,
-            Function::new(FunctionKind::Function),
-        );
-        self.frame = *enclosing;
-        function
+        let frame = mem::replace(&mut self.frame, *enclosing);
+        (frame.function, frame.upvalues)
     }
 
     fn function(&mut self, kind: FunctionKind, coords: Coords, name: &str) {
@@ -669,7 +689,7 @@ impl<'a, 't> Compiler<'a, 't> {
         self.current_chunk().write_nowhere(OpCode::Nil as u8);
         self.current_chunk().write_nowhere(OpCode::Return as u8);
 
-        let mut function = self.unnest();
+        let (mut function, upvalues) = self.unnest();
 
         function.name = Some(name.into());
 
@@ -682,8 +702,10 @@ impl<'a, 't> Compiler<'a, 't> {
         let function = self.make_constant(Value::Function(function_obj));
         self.emit_byte(function, coords);
 
-        todo!();
-        // function upvalues
+        for upvalue in &*upvalues {
+            self.emit_byte(if upvalue.is_local { 1 } else { 0 }, coords);
+            self.emit_byte(upvalue.index, coords);
+        }
     }
 
     fn fun_declaration<'b>(&'b mut self) {
@@ -910,13 +932,13 @@ impl<'a, 't> Compiler<'a, 't> {
         let (arg, get, set) = if let Some(arg) = self.resolve_local(token) {
             (arg, OpCode::GetLocal, OpCode::SetLocal)
         } else if let Some(arg) = self.resolve_upvalue(token) {
-                (arg, OpCode::GetUpvalue, OpCode::SetUpvalue)
+            (arg, OpCode::GetUpvalue, OpCode::SetUpvalue)
         } else {
-                (
-                    self.identifier_constant(token.span().into()),
-                    OpCode::GetGlobal,
-                    OpCode::SetGlobal,
-                )
+            (
+                self.identifier_constant(token.span().into()),
+                OpCode::GetGlobal,
+                OpCode::SetGlobal,
+            )
         };
 
         match self

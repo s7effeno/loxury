@@ -1,6 +1,6 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
-use crate::chunk::{Closure, Function, FunctionKind, OpCode, Value};
+use crate::chunk::{Closure, Function, FunctionKind, ObjUpvalue, OpCode, Value};
 use crate::compiler::Compiler;
 use crate::gc::{GcHandle, Manager};
 use crate::lex::Lexer;
@@ -323,8 +323,41 @@ impl Vm {
                     let closure = Closure::new(function);
                     let closure = self.objects.add(closure);
                     self.stack.push(Value::Closure(closure));
+
+                    let _closure = self.objects.get(closure);
+                    let upvalue_count = self.objects.get(_closure.function).upvalue_count;
+                    for i in 0..upvalue_count {
+                        let is_local = read_byte!();
+                        let index = read_byte!();
+                        if is_local == 1 {
+                            let slot = self.current_frame().base + index as usize;
+                            let upvalue = ObjUpvalue::new(self.stack[slot]);
+                            let closure = self.objects.get_mut(closure);
+                            closure.upvalues.push(upvalue);
+                        } else {
+                            let closure = self.current_frame().closure;
+                            let cclosure = self.objects.get(closure);
+                            let upvalue = cclosure.upvalues[i].clone();
+
+                            let cclosure = self.objects.get_mut(closure);
+                            cclosure.upvalues.push(upvalue);
+                        }
+                    }
                 }
-                OpCode::GetUpvalue | OpCode::SetUpvalue => todo!(),
+                OpCode::GetUpvalue => {
+                    let slot = read_byte!();
+                    let closure = self.current_frame().closure;
+                    let closure = self.objects.get(closure);
+                    let value = closure.upvalues[slot as usize].value;
+                    self.stack.push(value);
+                }
+                OpCode::SetUpvalue => {
+                    let slot = read_byte!();
+                    let closure = self.current_frame().closure;
+                    let closure = self.objects.get_mut(closure);
+                    let value = self.stack.last().unwrap();
+                    closure.upvalues[slot as usize].value = *value;
+                }
             }
         }
     }
