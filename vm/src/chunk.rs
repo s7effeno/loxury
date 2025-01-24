@@ -186,6 +186,9 @@ impl Chunk {
                 OpCode::SetUpvalue => {
                     byte!("set upvalue")
                 }
+                OpCode::CloseUpvalue => {
+                    simple!("close upvalue")
+                }
             }
         }
         Ok(())
@@ -220,6 +223,7 @@ pub enum OpCode {
     Loop,
     Call,
     Closure,
+    CloseUpvalue,
     Return,
 }
 
@@ -255,7 +259,8 @@ impl TryFrom<u8> for OpCode {
             24 => Ok(Self::Loop),
             25 => Ok(Self::Call),
             26 => Ok(Self::Closure),
-            27 => Ok(Self::Return),
+            27 => Ok(Self::CloseUpvalue),
+            28 => Ok(Self::Return),
             _ => Err(()),
         }
     }

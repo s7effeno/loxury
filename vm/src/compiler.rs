@@ -28,7 +28,7 @@ enum Precedence {
 struct Locals<'a> {
     // Some if initialized, None if uninitialized, to implement self-referential initialization
     // error
-    locals: ArrayVec<(&'a str, Option<usize>), 256>,
+    locals: ArrayVec<Local<'a>, 256>,
     scope_depth: usize,
 }
 
@@ -38,6 +38,16 @@ struct Local<'a> {
     is_captured: bool,
 }
 
+impl<'a> Local<'a> {
+    fn new(name: &'a str) -> Local<'a> {
+        Self {
+            name,
+            depth: None,
+            is_captured: false,
+        }
+    }
+}
+
 impl<'a> Locals<'a> {
     fn resolve(&self, name: &str) -> Result<Option<u8>, CompileError> {
         match self
@@ -45,10 +55,10 @@ impl<'a> Locals<'a> {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, (local, _))| local == &name)
+            .find(|(_, local)| local.name == name)
         {
-            Some((p, (_, depth))) => {
-                if depth.is_none() {
+            Some((p, local)) => {
+                if local.depth.is_none() {
                     Err(CompileError::SelfReferencialVariableInitializer(
                         name.into(),
                     ))
@@ -62,7 +72,7 @@ impl<'a> Locals<'a> {
 
     fn mark_initialized(&mut self) {
         if self.scope_depth > 0 {
-            self.locals.last_mut().unwrap().1 = Some(self.scope_depth);
+            self.locals.last_mut().unwrap().depth = Some(self.scope_depth);
         }
     }
 
@@ -70,34 +80,36 @@ impl<'a> Locals<'a> {
         self.scope_depth += 1
     }
 
-    fn end_scope(&mut self) -> usize {
+    // FIXME: returning Vec<bool> smells
+    fn end_scope(&mut self) -> Vec<bool> {
         self.scope_depth -= 1;
-        let to_pop = self
+        let locals = self
             .locals
             .iter()
             .rev()
-            .take_while(|(_, depth)| depth.unwrap_or(0) > self.scope_depth)
-            .count();
-        for _ in 0..to_pop {
+            .take_while(|local| local.depth.unwrap_or(0) > self.scope_depth)
+            .map(|l| l.is_captured)
+            .collect();
+        for _ in &locals {
             self.locals.pop();
         }
-        to_pop
+        locals
     }
 
     fn try_push(&mut self, name: &'a str) -> Result<(), ()> {
         if self.locals.len == u8::MAX as usize + 1 {
             Err(())
         } else {
-            Ok(self.locals.push((name, None)))
+            Ok(self.locals.push(Local::new(name)))
         }
     }
 
     fn is_unique(&self, name: &str) -> bool {
-        for (local, depth) in self.locals.iter() {
-            match depth {
-                Some(depth) if *depth < self.scope_depth => return true,
+        for local in self.locals.iter() {
+            match local.depth {
+                Some(depth) if depth < self.scope_depth => return true,
                 _ => {
-                    if &name == local {
+                    if local.name == name {
                         return false;
                     } else {
                         ()
@@ -177,6 +189,8 @@ impl CompilationFrame<'_> {
         if let Some(ref mut enclosing) = self.enclosing {
             let local = enclosing.resolve_local(name)?;
             if let Some(local) = local {
+                // FIXME: locals should be directly indexable
+                self.enclosing.as_mut().unwrap().locals.locals[local as usize].is_captured = true;
                 self.add_upvalue(local, true, name.coords())
                     .map(|u| Some(u))
             } else {
@@ -409,8 +423,8 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn end_scope(&mut self, coords: Coords) {
-        for _ in 0..self.frame.locals.end_scope() {
-            self.emit_op(OpCode::Pop, coords);
+        for is_captured in self.frame.locals.end_scope() {
+            self.emit_op(if is_captured { OpCode::CloseUpvalue } else { OpCode::Pop}, coords);
         }
     }
 
