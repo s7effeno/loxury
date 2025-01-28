@@ -6,7 +6,7 @@ use crate::gc::{GcHandle, Manager};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
-use std::collections::HashMap;
+use std::collections::{HashMap, LinkedList};
 
 use std::time::UNIX_EPOCH;
 
@@ -32,6 +32,7 @@ pub struct Vm {
     // name -> value
     globals: HashMap<GcHandle<String>, Value>,
     objects: Manager,
+    open_upvalues: LinkedList<ObjUpvalue>,
 }
 
 impl Vm {
@@ -41,6 +42,7 @@ impl Vm {
             stack: ArrayVec::new(),
             globals: HashMap::new(),
             objects: Manager::new(),
+            open_upvalues: LinkedList::new(),
         };
         ret.define_native("clock", 0, |_| {
             Value::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64)
