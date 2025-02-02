@@ -3,7 +3,7 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::chunk::{Closure, Function, FunctionKind, Value};
+use crate::chunk::{Closure, Function, FunctionKind, ObjUpvalue, Value};
 
 #[derive(Debug)]
 pub struct GcHandle<T> {
@@ -63,6 +63,7 @@ pub struct Manager {
     strings: Vec<String>,
     functions: Vec<Function>,
     closures: Vec<Closure>,
+    upvalues: Vec<ObjUpvalue>,
 }
 
 impl Manager {
@@ -71,6 +72,7 @@ impl Manager {
             strings: Vec::new(),
             functions: Vec::new(),
             closures: Vec::new(),
+            upvalues: Vec::new(),
         }
     }
 
@@ -157,6 +159,27 @@ impl Gc for Closure {
 
     fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self {
         &mut manager.closures[handle.idx]
+    }
+}
+
+impl Gc for ObjUpvalue {
+    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
+    where
+        Self: Sized {
+            manager.upvalues.push(value);
+            GcHandle::new(manager.upvalues.len() - 1)
+    }
+
+    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
+    where
+        Self: Sized {
+            &manager.upvalues[handle.idx]
+    }
+
+    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
+    where
+        Self: Sized {
+            &mut manager.upvalues[handle.idx]
     }
 }
 

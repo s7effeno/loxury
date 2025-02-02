@@ -6,7 +6,7 @@ use crate::gc::{GcHandle, Manager};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
-use std::collections::{HashMap, LinkedList};
+use std::collections::{HashMap};
 
 use std::time::UNIX_EPOCH;
 
@@ -32,7 +32,7 @@ pub struct Vm {
     // name -> value
     globals: HashMap<GcHandle<String>, Value>,
     objects: Manager,
-    open_upvalues: LinkedList<ObjUpvalue>,
+    open_upvalues: Vec<GcHandle<ObjUpvalue>>,
 }
 
 impl Vm {
@@ -42,7 +42,7 @@ impl Vm {
             stack: ArrayVec::new(),
             globals: HashMap::new(),
             objects: Manager::new(),
-            open_upvalues: LinkedList::new(),
+            open_upvalues: Vec::new(),
         };
         ret.define_native("clock", 0, |_| {
             Value::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64)
@@ -133,6 +133,7 @@ impl Vm {
                 OpCode::Return => {
                     let result = self.stack.pop().unwrap();
                     let frame = self.frames.pop().unwrap();
+                    self.close_upvalues(frame.base);
                     if self.frames.len() == 0 {
                         self.stack.pop();
                         return Ok(());
@@ -333,16 +334,14 @@ impl Vm {
                         let index = read_byte!();
                         if is_local == 1 {
                             let slot = self.current_frame().base + index as usize;
-                            let upvalue = ObjUpvalue::new(self.stack[slot]);
+                            let upvalue = self.capture_upvalue(slot);
                             let closure = self.objects.get_mut(closure);
                             closure.upvalues.push(upvalue);
                         } else {
-                            let closure = self.current_frame().closure;
-                            let cclosure = self.objects.get(closure);
-                            let upvalue = cclosure.upvalues[i].clone();
-
-                            let cclosure = self.objects.get_mut(closure);
-                            cclosure.upvalues.push(upvalue);
+                            let closure_obj = self.current_frame().closure;
+                            let closure = self.objects.get_mut(closure_obj);
+                            let upvalue = closure.upvalues[i].clone();
+                            closure.upvalues.push(upvalue);
                         }
                     }
                 }
@@ -350,17 +349,70 @@ impl Vm {
                     let slot = read_byte!();
                     let closure = self.current_frame().closure;
                     let closure = self.objects.get(closure);
-                    let value = closure.upvalues[slot as usize].value;
+                    let value = self.get_upvalue(closure.upvalues[slot as usize]);
                     self.stack.push(value);
                 }
                 OpCode::SetUpvalue => {
                     let slot = read_byte!();
                     let closure = self.current_frame().closure;
-                    let closure = self.objects.get_mut(closure);
-                    let value = self.stack.last().unwrap();
-                    closure.upvalues[slot as usize].value = *value;
+                    let closure = self.objects.get(closure);
+                    let upvalue = closure.upvalues[slot as usize];
+                    self.set_upvalue(upvalue);
+                }
+                OpCode::CloseUpvalue => {
+                    let top = self.stack.len() - 1;
+                    self.close_upvalues(top);
+                    self.stack.pop();
                 }
             }
+        }
+    }
+
+    fn close_upvalues(&mut self, last: usize) {
+        let mut it = self.open_upvalues.iter();
+        while let Some(upvalue) = it.next() {
+            let upvalue = self.objects.get_mut(*upvalue);
+            let slot = upvalue.as_open().unwrap();
+            if last > slot {
+                break;
+            }
+            let value = self.stack[slot];
+            *upvalue = ObjUpvalue::Closed(value);
+        }
+    }
+
+    fn capture_upvalue(&mut self, slot: usize) -> GcHandle<ObjUpvalue> {
+        let mut it = self.open_upvalues.iter().enumerate();
+        while let Some((i, upvalue_obj)) = it.next() {
+            let upvalue = self.objects.get(*upvalue_obj).as_open().unwrap();
+            if upvalue == slot {
+                return *upvalue_obj
+            } else if upvalue > slot {
+                let upvalue = ObjUpvalue::Open(slot);
+                let upvalue = self.objects.add(upvalue);
+                self.open_upvalues.insert(i, upvalue);
+                return upvalue
+            }
+        }
+        let upvalue = ObjUpvalue::Open(slot);
+        let upvalue = self.objects.add(upvalue);
+        self.open_upvalues.push(upvalue);
+        upvalue
+    }
+
+    fn get_upvalue(&self, upvalue: GcHandle<ObjUpvalue>) -> Value {
+        let upvalue = self.objects.get(upvalue);
+        match upvalue {
+            ObjUpvalue::Open(slot) => self.stack[*slot],
+            ObjUpvalue::Closed(value) => *value
+        }
+    }
+
+    fn set_upvalue(&mut self, upvalue: GcHandle<ObjUpvalue>) {
+        let upvalue = self.objects.get_mut(upvalue);
+        match upvalue {
+            ObjUpvalue::Open(ref mut index) => *index = self.stack.len() - 1,
+            ObjUpvalue::Closed(ref mut value) => *value = *self.stack.last().unwrap(),
         }
     }
 

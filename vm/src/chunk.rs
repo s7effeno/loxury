@@ -336,7 +336,7 @@ impl Display for Function {
 #[derive(Debug)]
 pub struct Closure {
     pub function: GcHandle<Function>,
-    pub upvalues: Vec<ObjUpvalue>,
+    pub upvalues: Vec<GcHandle<ObjUpvalue>>,
 }
 
 impl Closure {
@@ -361,12 +361,17 @@ impl Upvalue {
 }
 
 #[derive(Debug, Clone)]
-pub struct ObjUpvalue {
-    pub value: Value,
+pub enum ObjUpvalue {
+    Open(usize),
+    Closed(Value),
 }
 
 impl ObjUpvalue {
-    pub fn new(value: Value) -> Self {
-        Self { value }
+    pub fn as_open(&self) -> Result<usize, ()> {
+        if let Self::Open(slot) = self {
+            Ok(*slot)
+        } else {
+            Err(())
+        }
     }
 }
