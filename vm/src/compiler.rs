@@ -32,6 +32,7 @@ struct Locals<'a> {
     scope_depth: usize,
 }
 
+#[derive(Debug)]
 struct Local<'a> {
     name: &'a str,
     depth: Option<usize>,
@@ -193,8 +194,10 @@ impl CompilationFrame<'_> {
                 self.enclosing.as_mut().unwrap().locals.locals[local as usize].is_captured = true;
                 self.add_upvalue(local, true, name.coords())
                     .map(|u| Some(u))
+            } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
+                self.add_upvalue(upvalue, false, name.coords()).map(|u| Some(u))
             } else {
-                enclosing.resolve_upvalue(name)
+                Ok(None)
             }
         } else {
             Ok(None)

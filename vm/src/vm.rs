@@ -305,6 +305,7 @@ impl Vm {
                                 self.error(RunError::WrongArity(arity, args_count))?;
                             }
                             let result = f(&self.stack[base + 1..]);
+                            // TODO: use `Vec::truncate`
                             for _ in 0..args_count + 1 {
                                 self.stack.pop();
                             }
@@ -324,23 +325,24 @@ impl Vm {
                 OpCode::Closure => {
                     let function = read_constant!().try_as_function().unwrap();
                     let closure = Closure::new(function);
-                    let closure = self.objects.add(closure);
-                    self.stack.push(Value::Closure(closure));
+                    let closure_obj = self.objects.add(closure);
+                    self.stack.push(Value::Closure(closure_obj));
 
-                    let _closure = self.objects.get(closure);
-                    let upvalue_count = self.objects.get(_closure.function).upvalue_count;
+                    let closure = self.objects.get(closure_obj);
+                    let upvalue_count = self.objects.get(closure.function).upvalue_count;
                     for i in 0..upvalue_count {
                         let is_local = read_byte!();
                         let index = read_byte!();
                         if is_local == 1 {
                             let slot = self.current_frame().base + index as usize;
                             let upvalue = self.capture_upvalue(slot);
-                            let closure = self.objects.get_mut(closure);
+                            let closure = self.objects.get_mut(closure_obj);
                             closure.upvalues.push(upvalue);
                         } else {
-                            let closure_obj = self.current_frame().closure;
+                            let current_closure_obj = self.current_frame().closure;
+                            let current_closure = self.objects.get(current_closure_obj);
+                            let upvalue = current_closure.upvalues[i].clone();
                             let closure = self.objects.get_mut(closure_obj);
-                            let upvalue = closure.upvalues[i].clone();
                             closure.upvalues.push(upvalue);
                         }
                     }
@@ -369,28 +371,33 @@ impl Vm {
     }
 
     fn close_upvalues(&mut self, last: usize) {
-        let mut it = self.open_upvalues.iter();
+        let mut it = self.open_upvalues.iter().rev();
+        // FIXME: ugly
+        let mut top = self.open_upvalues.len();
         while let Some(upvalue) = it.next() {
             let upvalue = self.objects.get_mut(*upvalue);
             let slot = upvalue.as_open().unwrap();
-            if last > slot {
+            if slot < last {
                 break;
             }
             let value = self.stack[slot];
             *upvalue = ObjUpvalue::Closed(value);
+            top -= 1;
         }
+        self.open_upvalues.truncate(top);
     }
 
+    // FIXME: ugly
     fn capture_upvalue(&mut self, slot: usize) -> GcHandle<ObjUpvalue> {
-        let mut it = self.open_upvalues.iter().enumerate();
+        let mut it = self.open_upvalues.iter().enumerate().rev();
         while let Some((i, upvalue_obj)) = it.next() {
             let upvalue = self.objects.get(*upvalue_obj).as_open().unwrap();
             if upvalue == slot {
                 return *upvalue_obj
-            } else if upvalue > slot {
+            } else if upvalue < slot {
                 let upvalue = ObjUpvalue::Open(slot);
                 let upvalue = self.objects.add(upvalue);
-                self.open_upvalues.insert(i, upvalue);
+                self.open_upvalues.insert(i + 1, upvalue);
                 return upvalue
             }
         }

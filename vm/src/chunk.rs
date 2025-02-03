@@ -84,7 +84,7 @@ impl Chunk {
             }};
         }
         while let Some((addr, &b)) = bytes.next() {
-            print!("{} ", addr);
+            print!("{addr:04} ");
             match b.try_into().unwrap() {
                 OpCode::Constant => {
                     constant!("constant");
@@ -174,7 +174,7 @@ impl Chunk {
                         let (addr, is_local) = bytes.next().unwrap();
                         let (_, index) = bytes.next().unwrap();
                         println!(
-                            "{addr} {} {}",
+                            "{addr:04}     {} {}",
                             (if *is_local == 1 { "local" } else { "upvalue" }),
                             index
                         )
