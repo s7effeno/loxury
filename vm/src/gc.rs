@@ -12,6 +12,15 @@ pub struct GcHandle<T> {
     _type: PhantomData<T>,
 }
 
+impl<T: Gc> GcHandle<T> {
+    pub fn mark(&mut self,  manager: &mut Manager) {
+        if !self.marked {
+            self.marked = true;
+            T::greyen(manager, self);
+        }
+    }
+}
+
 impl<T> PartialEq for GcHandle<T> {
     fn eq(&self, other: &Self) -> bool {
         self.idx == other.idx
@@ -46,6 +55,11 @@ pub trait Gc {
     fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
     where
         Self: Sized;
+
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized;
+
+    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
+        where Self: Sized;
 }
 
 impl<T> GcHandle<T> {
@@ -61,18 +75,26 @@ impl<T> GcHandle<T> {
 // FIXME: use generics
 pub struct Manager {
     strings: Vec<String>,
+    strings_grey: Vec<GcHandle<String>>,
     functions: Vec<Function>,
+    functions_grey: Vec<GcHandle<Function>>,
     closures: Vec<Closure>,
+    closures_grey: Vec<GcHandle<Closure>>,
     upvalues: Vec<ObjUpvalue>,
+    upvalues_grey: Vec<GcHandle<ObjUpvalue>>,
 }
 
 impl Manager {
     pub fn new() -> Self {
         Self {
             strings: Vec::new(),
+            strings_grey: Vec::new(),
             functions: Vec::new(),
+            functions_grey: Vec::new(),
             closures: Vec::new(),
+            closures_grey: Vec::new(),
             upvalues: Vec::new(),
+            upvalues_grey: Vec::new(),
         }
     }
 
@@ -86,6 +108,22 @@ impl Manager {
 
     pub fn get_mut<T: Gc>(&mut self, handle: GcHandle<T>) -> &mut T {
         T::get_mut(self, handle)
+    }
+
+    pub fn mark<T: Gc>(&mut self, handle: &mut GcHandle<T>) {
+        handle.mark(self)
+    }
+
+    pub fn mark_value(&mut self, value: Value) {
+        match value {
+            Value::Bool(_) => todo!(),
+            Value::Nil => todo!(),
+            Value::Number(_) => todo!(),
+            Value::String(v) => v.mark(self),
+            Value::Function(v) => todo!(),
+            Value::NativeFunction { arity, f } => todo!(),
+            Value::Closure(gc_handle) => todo!(),
+        }
     }
 }
 
@@ -115,6 +153,14 @@ impl Gc for String {
     {
         unimplemented!()
     }
+
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+        manager.strings_grey.push(handle);
+    }
+
+    fn blacken(_manager: &mut Manager, _handle: &mut GcHandle<Self>)
+        where Self: Sized {
+    }
 }
 
 impl Gc for Function {
@@ -139,6 +185,18 @@ impl Gc for Function {
     {
         &mut manager.functions[handle.idx]
     }
+
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+        manager.functions_grey.push(handle);
+    }
+
+    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
+        where Self: Sized {
+            let f = manager.get(*handle);
+            for constant in f.chunk.constants {
+
+            }
+    }
 }
 
 impl Gc for Closure {
@@ -160,6 +218,15 @@ impl Gc for Closure {
     fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self {
         &mut manager.closures[handle.idx]
     }
+
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+        manager.closures_grey.push(handle)
+    }
+
+    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
+        where Self: Sized {
+        todo!()
+    }
 }
 
 impl Gc for ObjUpvalue {
@@ -180,6 +247,15 @@ impl Gc for ObjUpvalue {
     where
         Self: Sized {
             &mut manager.upvalues[handle.idx]
+    }
+
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+        manager.upvalues_grey.push(handle);
+    }
+
+    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
+        where Self: Sized {
+        todo!()
     }
 }
 
@@ -207,5 +283,9 @@ impl Manager {
                 print!("{function}");
             }
         }
+    }
+
+    pub fn collect_garbage(&mut self) {
+
     }
 }
