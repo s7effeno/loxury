@@ -195,7 +195,8 @@ impl CompilationFrame<'_> {
                 self.add_upvalue(local, true, name.coords())
                     .map(|u| Some(u))
             } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
-                self.add_upvalue(upvalue, false, name.coords()).map(|u| Some(u))
+                self.add_upvalue(upvalue, false, name.coords())
+                    .map(|u| Some(u))
             } else {
                 Ok(None)
             }
@@ -427,7 +428,14 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn end_scope(&mut self, coords: Coords) {
         for is_captured in self.frame.locals.end_scope() {
-            self.emit_op(if is_captured { OpCode::CloseUpvalue } else { OpCode::Pop}, coords);
+            self.emit_op(
+                if is_captured {
+                    OpCode::CloseUpvalue
+                } else {
+                    OpCode::Pop
+                },
+                coords,
+            );
         }
     }
 

@@ -2,18 +2,81 @@
 
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::{collections::HashMap, mem};
 
 use crate::chunk::{Closure, Function, FunctionKind, ObjUpvalue, Value};
+
+pub struct Interner {
+    map: HashMap<&'static str, u32>,
+    vec: Vec<&'static str>,
+    buf: String,
+    full: Vec<String>,
+}
+
+impl Interner {
+    pub fn with_capacity(cap: usize) -> Interner {
+        let cap = cap.next_power_of_two();
+        Interner {
+            map: HashMap::default(),
+            vec: Vec::new(),
+            buf: String::with_capacity(cap),
+            full: Vec::new(),
+        }
+    }
+    pub fn intern(&mut self, name: &str) -> u32 {
+        if let Some(&id) = self.map.get(name) {
+            return id;
+        }
+        let name = unsafe { self.alloc(name) };
+        let id = self.map.len() as u32;
+        self.map.insert(name, id);
+        self.vec.push(name);
+        debug_assert!(self.lookup(id) == name);
+        debug_assert!(self.intern(name) == id);
+        id
+    }
+    pub fn lookup(&self, id: u32) -> &str {
+        self.vec[id as usize]
+    }
+    unsafe fn alloc(&mut self, name: &str) -> &'static str {
+        let cap = self.buf.capacity();
+        if cap < self.buf.len() + name.len() {
+            let new_cap = (cap.max(name.len()) + 1).next_power_of_two();
+            let new_buf = String::with_capacity(new_cap);
+            let old_buf = mem::replace(&mut self.buf, new_buf);
+            self.full.push(old_buf);
+        }
+        let interned = {
+            let start = self.buf.len();
+            self.buf.push_str(name);
+            &self.buf[start..]
+        };
+        &*(interned as *const str)
+    }
+}
+
+trait Trace {
+    fn trace(&self, tracer: &mut dyn FnMut(GcHandle<Self>));
+}
+
+pub struct GcHeap {
+    objects: Vec<GcObject>,
+    interner: Interner,
+}
+
+pub struct GcObject {
+    value: Box<dyn Trace>,
+    marked: bool,
+}
 
 #[derive(Debug)]
 pub struct GcHandle<T> {
     idx: usize,
-    marked: bool,
-    _type: PhantomData<T>,
+    _type: PhantomData<*mut T>,
 }
 
 impl<T: Gc> GcHandle<T> {
-    pub fn mark(&mut self,  manager: &mut Manager) {
+    pub fn mark(&mut self, manager: &mut Manager) {
         if !self.marked {
             self.marked = true;
             T::greyen(manager, self);
@@ -56,10 +119,13 @@ pub trait Gc {
     where
         Self: Sized;
 
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized;
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
+    where
+        Self: Sized;
 
     fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-        where Self: Sized;
+    where
+        Self: Sized;
 }
 
 impl<T> GcHandle<T> {
@@ -154,12 +220,17 @@ impl Gc for String {
         unimplemented!()
     }
 
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
+    where
+        Self: Sized,
+    {
         manager.strings_grey.push(handle);
     }
 
     fn blacken(_manager: &mut Manager, _handle: &mut GcHandle<Self>)
-        where Self: Sized {
+    where
+        Self: Sized,
+    {
     }
 }
 
@@ -186,16 +257,19 @@ impl Gc for Function {
         &mut manager.functions[handle.idx]
     }
 
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
+    where
+        Self: Sized,
+    {
         manager.functions_grey.push(handle);
     }
 
     fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-        where Self: Sized {
-            let f = manager.get(*handle);
-            for constant in f.chunk.constants {
-
-            }
+    where
+        Self: Sized,
+    {
+        let f = manager.get(*handle);
+        for constant in f.chunk.constants {}
     }
 }
 
@@ -219,12 +293,17 @@ impl Gc for Closure {
         &mut manager.closures[handle.idx]
     }
 
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
+    where
+        Self: Sized,
+    {
         manager.closures_grey.push(handle)
     }
 
     fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-        where Self: Sized {
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }
@@ -232,29 +311,37 @@ impl Gc for Closure {
 impl Gc for ObjUpvalue {
     fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
     where
-        Self: Sized {
-            manager.upvalues.push(value);
-            GcHandle::new(manager.upvalues.len() - 1)
+        Self: Sized,
+    {
+        manager.upvalues.push(value);
+        GcHandle::new(manager.upvalues.len() - 1)
     }
 
     fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
     where
-        Self: Sized {
-            &manager.upvalues[handle.idx]
+        Self: Sized,
+    {
+        &manager.upvalues[handle.idx]
     }
 
     fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
     where
-        Self: Sized {
-            &mut manager.upvalues[handle.idx]
+        Self: Sized,
+    {
+        &mut manager.upvalues[handle.idx]
     }
 
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>) where Self: Sized {
+    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
+    where
+        Self: Sized,
+    {
         manager.upvalues_grey.push(handle);
     }
 
     fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-        where Self: Sized {
+    where
+        Self: Sized,
+    {
         todo!()
     }
 }
@@ -285,7 +372,5 @@ impl Manager {
         }
     }
 
-    pub fn collect_garbage(&mut self) {
-
-    }
+    pub fn collect_garbage(&mut self) {}
 }

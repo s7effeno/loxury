@@ -6,7 +6,7 @@ use crate::gc::{GcHandle, Manager};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 use std::time::UNIX_EPOCH;
 
@@ -393,12 +393,12 @@ impl Vm {
         while let Some((i, upvalue_obj)) = it.next() {
             let upvalue = self.objects.get(*upvalue_obj).as_open().unwrap();
             if upvalue == slot {
-                return *upvalue_obj
+                return *upvalue_obj;
             } else if upvalue < slot {
                 let upvalue = ObjUpvalue::Open(slot);
                 let upvalue = self.objects.add(upvalue);
                 self.open_upvalues.insert(i + 1, upvalue);
-                return upvalue
+                return upvalue;
             }
         }
         let upvalue = ObjUpvalue::Open(slot);
@@ -411,7 +411,7 @@ impl Vm {
         let upvalue = self.objects.get(upvalue);
         match upvalue {
             ObjUpvalue::Open(slot) => self.stack[*slot],
-            ObjUpvalue::Closed(value) => *value
+            ObjUpvalue::Closed(value) => *value,
         }
     }
 
