@@ -1,8 +1,8 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
-use crate::chunk::{Closure, Function, FunctionKind, ObjUpvalue, OpCode, Value};
+use crate::chunk::{Closure, Function, FunctionKind, ObjUpvalue, OpCode, Value, ValueDisplay};
 use crate::compiler::Compiler;
-use crate::gc::{GcHandle, Manager};
+use crate::gc::{GcHandle, Heap, Allocate};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
@@ -31,7 +31,7 @@ pub struct Vm {
     stack: ArrayVec<Value, { 64 * 256 }>,
     // name -> value
     globals: HashMap<GcHandle<String>, Value>,
-    objects: Manager,
+    objects: Heap,
     open_upvalues: Vec<GcHandle<ObjUpvalue>>,
 }
 
@@ -41,7 +41,7 @@ impl Vm {
             frames: ArrayVec::new(),
             stack: ArrayVec::new(),
             globals: HashMap::new(),
-            objects: Manager::new(),
+            objects: Heap::default(),
             open_upvalues: Vec::new(),
         };
         ret.define_native("clock", 0, |_| {
@@ -51,7 +51,7 @@ impl Vm {
     }
 
     pub fn define_native(&mut self, name: &str, arity: u8, f: fn(&[Value]) -> Value) {
-        let name = self.objects.add(name.to_owned());
+        let name = self.objects.alloc(name.to_owned());
         self.stack.push(Value::String(name));
         self.globals
             .insert(name, Value::NativeFunction { arity, f });
@@ -70,8 +70,8 @@ impl Vm {
             FunctionKind::Script,
         )
         .compile()?;
-        let function = self.objects.add(function);
-        let closure = self.objects.add(Closure::new(function));
+        let function = self.objects.alloc(function);
+        let closure = self.objects.alloc(Closure::new(function));
 
         self.frames.push(CallFrame::new(closure, 0));
         self.stack.push(Value::Closure(closure));
@@ -88,8 +88,8 @@ impl Vm {
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
         let ip = self.current_frame().ip;
         let closure = self.current_frame().closure;
-        let function = self.objects.get(closure).function;
-        let function = self.objects.get(function);
+        let function = &self.objects[closure].function;
+        let function = &self.objects[*function];
         Err(function.chunk.coords(ip).locate(error))
     }
 
@@ -106,8 +106,8 @@ impl Vm {
             macro_rules! read_byte {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
-                    let closure = self.objects.get(frame.closure);
-                    let function = self.objects.get(closure.function);
+                    let closure = &self.objects[frame.closure];
+                    let function = &self.objects[closure.function];
                     let ip = frame.ip;
                     let ret = function.chunk.byte_at(ip);
                     frame.ip += 1;
@@ -122,8 +122,8 @@ impl Vm {
             macro_rules! read_constant {
                 () => {{
                     let frame = self.frames.last_mut().unwrap();
-                    let closure = self.objects.get(frame.closure);
-                    let function = self.objects.get(closure.function);
+                    let closure = &self.objects[frame.closure];
+                    let function = &self.objects[closure.function];
                     // let index = read_byte!();
                     function.chunk.get_constant(read_byte!())
                 }};
@@ -156,8 +156,8 @@ impl Vm {
                             self.stack.push(Value::Number(a + b))
                         }
                         (Value::String(a), Value::String(b)) => {
-                            let value = self.objects.get(a).to_owned() + &*self.objects.get(b);
-                            let value = self.objects.add(value);
+                            let value = self.objects[a].to_owned() + &self.objects[b];
+                            let value = self.objects.alloc(value);
                             self.stack.push(Value::String(value));
                         }
                         _ => return self.error(RunError::ExpectedNumbersOrStrings),
@@ -239,8 +239,7 @@ impl Vm {
                 }
                 OpCode::Print => {
                     let value = self.stack.last().unwrap();
-                    self.print_value(*value);
-                    println!("");
+                    println!("{}", ValueDisplay(&value, &self.objects));
                     self.stack.pop();
                 }
                 OpCode::Pop => {
@@ -256,7 +255,7 @@ impl Vm {
                     if let Some(value) = self.globals.get(&name) {
                         self.stack.push(*value);
                     } else {
-                        let name = self.objects.get(name).into();
+                        let name = self.objects[name].into();
                         return self.error(RunError::UndefinedVariable(name));
                     }
                 }
@@ -266,7 +265,7 @@ impl Vm {
                         let new_value = self.stack.last().unwrap();
                         *value = *new_value;
                     } else {
-                        let name = self.objects.get(name).into();
+                        let name = self.objects[name].into();
                         return self.error(RunError::UndefinedVariable(name));
                     }
                 }
@@ -312,8 +311,8 @@ impl Vm {
                             self.stack.push(result);
                         }
                         Value::Closure(c) => {
-                            let closure = self.objects.get(c);
-                            let arity = self.objects.get(closure.function).arity;
+                            let closure = &self.objects[c];
+                            let arity = self.objects[closure.function].arity;
                             if arity != args_count {
                                 self.error(RunError::WrongArity(arity, args_count))?;
                             }
@@ -325,24 +324,24 @@ impl Vm {
                 OpCode::Closure => {
                     let function = read_constant!().try_as_function().unwrap();
                     let closure = Closure::new(function);
-                    let closure_obj = self.objects.add(closure);
+                    let closure_obj = self.objects.alloc(closure);
                     self.stack.push(Value::Closure(closure_obj));
 
-                    let closure = self.objects.get(closure_obj);
-                    let upvalue_count = self.objects.get(closure.function).upvalue_count;
+                    let closure = &self.objects[closure_obj];
+                    let upvalue_count = self.objects[closure.function].upvalue_count;
                     for i in 0..upvalue_count {
                         let is_local = read_byte!();
                         let index = read_byte!();
                         if is_local == 1 {
                             let slot = self.current_frame().base + index as usize;
                             let upvalue = self.capture_upvalue(slot);
-                            let closure = self.objects.get_mut(closure_obj);
+                            let closure = &mut self.objects[closure_obj];
                             closure.upvalues.push(upvalue);
                         } else {
                             let current_closure_obj = self.current_frame().closure;
-                            let current_closure = self.objects.get(current_closure_obj);
+                            let current_closure = &self.objects[current_closure_obj];
                             let upvalue = current_closure.upvalues[i].clone();
-                            let closure = self.objects.get_mut(closure_obj);
+                            let closure = &mut self.objects[closure_obj];
                             closure.upvalues.push(upvalue);
                         }
                     }
@@ -350,14 +349,14 @@ impl Vm {
                 OpCode::GetUpvalue => {
                     let slot = read_byte!();
                     let closure = self.current_frame().closure;
-                    let closure = self.objects.get(closure);
+                    let closure = &self.objects[closure];
                     let value = self.get_upvalue(closure.upvalues[slot as usize]);
                     self.stack.push(value);
                 }
                 OpCode::SetUpvalue => {
                     let slot = read_byte!();
                     let closure = self.current_frame().closure;
-                    let closure = self.objects.get(closure);
+                    let closure = &self.objects[closure];
                     let upvalue = closure.upvalues[slot as usize];
                     self.set_upvalue(upvalue);
                 }
@@ -375,7 +374,7 @@ impl Vm {
         // FIXME: ugly
         let mut top = self.open_upvalues.len();
         while let Some(upvalue) = it.next() {
-            let upvalue = self.objects.get_mut(*upvalue);
+            let upvalue = &mut self.objects[*upvalue];
             let slot = upvalue.as_open().unwrap();
             if slot < last {
                 break;
@@ -391,24 +390,24 @@ impl Vm {
     fn capture_upvalue(&mut self, slot: usize) -> GcHandle<ObjUpvalue> {
         let mut it = self.open_upvalues.iter().enumerate().rev();
         while let Some((i, upvalue_obj)) = it.next() {
-            let upvalue = self.objects.get(*upvalue_obj).as_open().unwrap();
-            if upvalue == slot {
+            let upvalue = &self.objects[*upvalue_obj].as_open().unwrap();
+            if *upvalue == slot {
                 return *upvalue_obj;
-            } else if upvalue < slot {
+            } else if *upvalue < slot {
                 let upvalue = ObjUpvalue::Open(slot);
-                let upvalue = self.objects.add(upvalue);
+                let upvalue = self.objects.alloc(upvalue);
                 self.open_upvalues.insert(i + 1, upvalue);
                 return upvalue;
             }
         }
         let upvalue = ObjUpvalue::Open(slot);
-        let upvalue = self.objects.add(upvalue);
+        let upvalue = self.objects.alloc(upvalue);
         self.open_upvalues.push(upvalue);
         upvalue
     }
 
     fn get_upvalue(&self, upvalue: GcHandle<ObjUpvalue>) -> Value {
-        let upvalue = self.objects.get(upvalue);
+        let upvalue = &self.objects[upvalue];
         match upvalue {
             ObjUpvalue::Open(slot) => self.stack[*slot],
             ObjUpvalue::Closed(value) => *value,
@@ -416,14 +415,10 @@ impl Vm {
     }
 
     fn set_upvalue(&mut self, upvalue: GcHandle<ObjUpvalue>) {
-        let upvalue = self.objects.get_mut(upvalue);
+        let upvalue = &mut self.objects[upvalue];
         match upvalue {
             ObjUpvalue::Open(ref mut index) => *index = self.stack.len() - 1,
             ObjUpvalue::Closed(ref mut value) => *value = *self.stack.last().unwrap(),
         }
-    }
-
-    fn print_value(&mut self, value: Value) {
-        self.objects.print_value(value);
     }
 }

@@ -2,7 +2,7 @@
 // TODO: maybe bind function name to FunctionKind::Function
 
 use crate::chunk::{Chunk, Closure, Function, FunctionKind, OpCode, Upvalue, Value};
-use crate::gc::Manager;
+use crate::gc::{Heap, Allocate};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::{ArrayVec, CompileError};
@@ -159,7 +159,7 @@ impl Errors {
 
 pub struct Compiler<'a, 't> {
     lexer: &'a mut Peekable<Lexer<'t>>,
-    objects: &'a mut Manager,
+    objects: &'a mut Heap,
     frame: CompilationFrame<'a>,
     errors: Errors,
 }
@@ -243,7 +243,7 @@ impl CompilationFrame<'_> {
 impl<'a, 't> Compiler<'a, 't> {
     pub fn new<'b>(
         lexer: &'b mut Peekable<Lexer<'t>>,
-        objects: &'b mut Manager,
+        objects: &'b mut Heap,
         function_kind: FunctionKind,
     ) -> Compiler<'b, 't> {
         Compiler {
@@ -542,7 +542,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn identifier_constant(&mut self, name: String) -> u8 {
-        let value = self.objects.add(name);
+        let value = self.objects.alloc(name);
         self.make_constant(Value::String(value))
     }
 
@@ -721,7 +721,7 @@ impl<'a, 't> Compiler<'a, 't> {
         println!("---{}---", function);
         let _ = function.chunk.disassemble(self.objects);
 
-        let function_obj = self.objects.add(function);
+        let function_obj = self.objects.alloc(function);
 
         self.emit_op(OpCode::Closure, coords);
         let function = self.make_constant(Value::Function(function_obj));
@@ -929,7 +929,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn string(&mut self, token: &AtCoords<Token<'_>>) {
-        let s = self.objects.add(token.span().to_owned());
+        let s = self.objects.alloc(token.span().to_owned());
         self.emit_constant(Value::String(s), token.coords())
     }
 

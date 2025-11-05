@@ -1,12 +1,11 @@
-// TODO: implement Gc<T> and trait
-
-use std::hash::Hash;
 use std::marker::PhantomData;
+use std::ops::{Index, IndexMut};
 use std::{collections::HashMap, mem};
 
-use crate::chunk::{Closure, Function, FunctionKind, ObjUpvalue, Value};
+use crate::chunk::{Closure, Function, ObjUpvalue};
 
-pub struct Interner {
+#[derive(Default)]
+struct Interner {
     map: HashMap<&'static str, u32>,
     vec: Vec<&'static str>,
     buf: String,
@@ -38,6 +37,7 @@ impl Interner {
     pub fn lookup(&self, id: u32) -> &str {
         self.vec[id as usize]
     }
+
     unsafe fn alloc(&mut self, name: &str) -> &'static str {
         let cap = self.buf.capacity();
         if cap < self.buf.len() + name.len() {
@@ -55,322 +55,148 @@ impl Interner {
     }
 }
 
-trait Trace {
-    fn trace(&self, tracer: &mut dyn FnMut(GcHandle<Self>));
+trait Trace<T: FnMut(GcHandle<Self>)>: Sized {
+    fn trace(&self, tracer: T);
 }
 
-pub struct GcHeap {
-    objects: Vec<GcObject>,
-    interner: Interner,
+pub struct Arena<T> {
+    objects: Vec<GcObject<T>>,
 }
 
-pub struct GcObject {
-    value: Box<dyn Trace>,
+impl<T> Default for Arena<T> {
+    fn default() -> Self {
+        Self {
+            objects: Vec::default()
+        }
+    }
+}
+
+struct GcObject<T> {
+    value: T,
     marked: bool,
 }
 
-#[derive(Debug)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub struct GcHandle<T> {
     idx: usize,
     _type: PhantomData<*mut T>,
 }
 
-impl<T: Gc> GcHandle<T> {
-    pub fn mark(&mut self, manager: &mut Manager) {
-        if !self.marked {
-            self.marked = true;
-            T::greyen(manager, self);
+impl<T> GcHandle<T> {
+    fn new(index: usize) -> Self {
+        Self {
+            idx: index,
+            _type: PhantomData::default(),
         }
-    }
-}
-
-impl<T> PartialEq for GcHandle<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx
-    }
-}
-
-impl<T: PartialEq> Eq for GcHandle<T> {}
-
-impl Hash for GcHandle<String> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.idx.hash(state)
     }
 }
 
 impl<T> Clone for GcHandle<T> {
     fn clone(&self) -> Self {
-        Self::new(self.idx)
+        *self
     }
 }
 
 impl<T> Copy for GcHandle<T> {}
 
-pub trait Gc {
-    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
-    where
-        Self: Sized;
-
-    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
-    where
-        Self: Sized;
-
-    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
-    where
-        Self: Sized;
-
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
-    where
-        Self: Sized;
-
-    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-    where
-        Self: Sized;
+pub trait Allocate<T> {
+    fn alloc(&mut self, value: T) -> GcHandle<T>;
 }
 
-impl<T> GcHandle<T> {
-    fn new(idx: usize) -> Self {
-        Self {
-            idx,
+macro_rules! define_heap {
+    ($name:ident { $($arena:ident: $ty:ty),* $(,)? }) => {
+        #[derive(Default)]
+        pub struct $name {
+            $($arena: $ty,)*
+        }
+
+        $(
+            impl Allocate<<$ty as _Allocate>::Item> for $name {
+
+                fn alloc(&mut self, value: <$ty as _Allocate>::Item) -> GcHandle<<$ty as _Allocate>::Item> {
+                    self.$arena.alloc(value)
+                }
+            }
+
+            impl Index<GcHandle<<$ty as _Allocate>::Item>> for $name {
+                type Output = <$ty as Index<GcHandle< <$ty as _Allocate>::Item >>>::Output;
+
+                fn index(&self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &Self::Output {
+                    &self.$arena[idx]
+                }
+            }
+
+            impl IndexMut<GcHandle<<$ty as _Allocate>::Item>> for $name {
+                fn index_mut(&mut self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &mut Self::Output {
+                    &mut self.$arena[idx]
+                }
+            }
+        )*
+    };
+}
+
+define_heap!(Heap {
+    arena_function: Arena<Function>,
+    arena_upvalues: Arena<ObjUpvalue>,
+    arena_closure: Arena<Closure>,
+    arena_string: StringArena,
+});
+
+#[derive(Default)]
+pub struct StringArena {
+    interner: Interner,
+    arena: Arena<u32>,
+}
+
+impl _Allocate for StringArena {
+    type Item = String;
+    fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item> {
+        let index = self.interner.intern(&value);
+        GcHandle::new(index as usize)
+    }
+}
+
+impl Index<GcHandle<String>> for StringArena {
+    type Output = str;
+    fn index(&self, index: GcHandle<String>) -> &Self::Output {
+        let index = self.arena[GcHandle::new(index.idx)];
+        self.interner.lookup(index)
+    }
+}
+
+impl IndexMut<GcHandle<String>> for StringArena {
+    fn index_mut(&mut self, index: GcHandle<String>) -> &mut Self::Output {
+        panic!()
+    }
+}
+
+pub trait _Allocate {
+    type Item;
+    fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item>;
+}
+
+impl<T> Index<GcHandle<T>> for Arena<T> {
+    type Output = T;
+    fn index(&self, idx: GcHandle<T>) -> &Self::Output {
+        &self.objects[idx.idx].value
+    }
+}
+
+impl<T> IndexMut<GcHandle<T>> for Arena<T> {
+    fn index_mut(&mut self, idx: GcHandle<T>) -> &mut Self::Output {
+        &mut self.objects[idx.idx].value
+    }
+}
+
+impl<T> _Allocate for Arena<T> {
+    type Item = T;
+    fn alloc(&mut self, value: T) -> GcHandle<T> {
+        self.objects.push(GcObject {
+            value: value,
             marked: false,
-            _type: PhantomData,
-        }
+        });
+        GcHandle::new(self.objects.len() - 1)
     }
 }
 
-// FIXME: use generics
-pub struct Manager {
-    strings: Vec<String>,
-    strings_grey: Vec<GcHandle<String>>,
-    functions: Vec<Function>,
-    functions_grey: Vec<GcHandle<Function>>,
-    closures: Vec<Closure>,
-    closures_grey: Vec<GcHandle<Closure>>,
-    upvalues: Vec<ObjUpvalue>,
-    upvalues_grey: Vec<GcHandle<ObjUpvalue>>,
-}
-
-impl Manager {
-    pub fn new() -> Self {
-        Self {
-            strings: Vec::new(),
-            strings_grey: Vec::new(),
-            functions: Vec::new(),
-            functions_grey: Vec::new(),
-            closures: Vec::new(),
-            closures_grey: Vec::new(),
-            upvalues: Vec::new(),
-            upvalues_grey: Vec::new(),
-        }
-    }
-
-    pub fn add<T: Gc>(&mut self, value: T) -> GcHandle<T> {
-        T::new(self, value)
-    }
-
-    pub fn get<T: Gc>(&self, handle: GcHandle<T>) -> &T {
-        T::get(self, handle)
-    }
-
-    pub fn get_mut<T: Gc>(&mut self, handle: GcHandle<T>) -> &mut T {
-        T::get_mut(self, handle)
-    }
-
-    pub fn mark<T: Gc>(&mut self, handle: &mut GcHandle<T>) {
-        handle.mark(self)
-    }
-
-    pub fn mark_value(&mut self, value: Value) {
-        match value {
-            Value::Bool(_) => todo!(),
-            Value::Nil => todo!(),
-            Value::Number(_) => todo!(),
-            Value::String(v) => v.mark(self),
-            Value::Function(v) => todo!(),
-            Value::NativeFunction { arity, f } => todo!(),
-            Value::Closure(gc_handle) => todo!(),
-        }
-    }
-}
-
-impl Gc for String {
-    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
-    where
-        Self: Sized,
-    {
-        if let Some(v) = manager.strings.iter().position(|x| x == &value) {
-            GcHandle::new(v)
-        } else {
-            manager.strings.push(value);
-            GcHandle::new(manager.strings.len() - 1)
-        }
-    }
-
-    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
-    where
-        Self: Sized,
-    {
-        &manager.strings[handle.idx]
-    }
-
-    fn get_mut(_manager: &mut Manager, _handle: GcHandle<Self>) -> &mut Self
-    where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
-
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-        manager.strings_grey.push(handle);
-    }
-
-    fn blacken(_manager: &mut Manager, _handle: &mut GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-    }
-}
-
-impl Gc for Function {
-    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
-    where
-        Self: Sized,
-    {
-        manager.functions.push(value);
-        GcHandle::new(manager.functions.len() - 1)
-    }
-
-    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
-    where
-        Self: Sized,
-    {
-        &manager.functions[handle.idx]
-    }
-
-    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
-    where
-        Self: Sized,
-    {
-        &mut manager.functions[handle.idx]
-    }
-
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-        manager.functions_grey.push(handle);
-    }
-
-    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-        let f = manager.get(*handle);
-        for constant in f.chunk.constants {}
-    }
-}
-
-impl Gc for Closure {
-    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
-    where
-        Self: Sized,
-    {
-        manager.closures.push(value);
-        GcHandle::new(manager.closures.len() - 1)
-    }
-
-    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
-    where
-        Self: Sized,
-    {
-        &manager.closures[handle.idx]
-    }
-
-    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self {
-        &mut manager.closures[handle.idx]
-    }
-
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-        manager.closures_grey.push(handle)
-    }
-
-    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
-}
-
-impl Gc for ObjUpvalue {
-    fn new(manager: &mut Manager, value: Self) -> GcHandle<Self>
-    where
-        Self: Sized,
-    {
-        manager.upvalues.push(value);
-        GcHandle::new(manager.upvalues.len() - 1)
-    }
-
-    fn get(manager: &Manager, handle: GcHandle<Self>) -> &Self
-    where
-        Self: Sized,
-    {
-        &manager.upvalues[handle.idx]
-    }
-
-    fn get_mut(manager: &mut Manager, handle: GcHandle<Self>) -> &mut Self
-    where
-        Self: Sized,
-    {
-        &mut manager.upvalues[handle.idx]
-    }
-
-    fn greyen(manager: &mut Manager, handle: GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-        manager.upvalues_grey.push(handle);
-    }
-
-    fn blacken(manager: &mut Manager, handle: &mut GcHandle<Self>)
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
-}
-
-impl Manager {
-    // TODO: move to better place(?)
-    pub fn print_value(&self, value: Value) {
-        match value {
-            Value::Bool(v) => print!("{v}"),
-            Value::Nil => print!("nil"),
-            Value::Number(v) => print!("{v}"),
-            Value::String(v) => {
-                let v = self.get(v);
-                print!("{v}")
-            }
-            Value::Function(v) => {
-                let v = self.get(v);
-                print!("{v}")
-            }
-            Value::NativeFunction { .. } => {
-                print!("<native fn>")
-            }
-            Value::Closure(v) => {
-                let function = self.get(v).function;
-                let function = self.get(function);
-                print!("{function}");
-            }
-        }
-    }
-
-    pub fn collect_garbage(&mut self) {}
-}
+fn main() {}
