@@ -66,7 +66,7 @@ pub struct Arena<T> {
 impl<T> Default for Arena<T> {
     fn default() -> Self {
         Self {
-            objects: Vec::default()
+            objects: Vec::default(),
         }
     }
 }
@@ -152,13 +152,15 @@ impl _Allocate for StringArena {
     type Item = String;
     fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item> {
         let index = self.interner.intern(&value);
-        GcHandle::new(index as usize)
+        dbg!(index);
+        GcHandle::new(self.arena.alloc(index as u32).idx)
     }
 }
 
 impl Index<GcHandle<String>> for StringArena {
     type Output = str;
     fn index(&self, index: GcHandle<String>) -> &Self::Output {
+        dbg!(index.idx);
         let index = self.arena[GcHandle::new(index.idx)];
         self.interner.lookup(index)
     }
@@ -178,6 +180,7 @@ pub trait _Allocate {
 impl<T> Index<GcHandle<T>> for Arena<T> {
     type Output = T;
     fn index(&self, idx: GcHandle<T>) -> &Self::Output {
+        dbg!(idx.idx);
         &self.objects[idx.idx].value
     }
 }
@@ -191,6 +194,7 @@ impl<T> IndexMut<GcHandle<T>> for Arena<T> {
 impl<T> _Allocate for Arena<T> {
     type Item = T;
     fn alloc(&mut self, value: T) -> GcHandle<T> {
+        dbg!(self.objects.len());
         self.objects.push(GcObject {
             value: value,
             marked: false,
