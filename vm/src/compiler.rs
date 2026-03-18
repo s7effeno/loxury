@@ -1,8 +1,8 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 // TODO: maybe bind function name to FunctionKind::Function
 
-use crate::chunk::{Chunk, Closure, Function, FunctionKind, OpCode, Upvalue, Value};
-use crate::gc::{Heap, Allocate};
+use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Upvalue, Value};
+use crate::gc::{Allocate, Heap};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::{ArrayVec, CompileError};
@@ -739,6 +739,7 @@ impl<'a, 't> Compiler<'a, 't> {
             .filter(|t| t.kind() == TokenKind::Identifier)
             .map(|t| t.span())
         else {
+            // shouldn't be unreachable, TODO: double check
             unreachable!()
         };
         if let Ok((global, coords)) = self.parse_variable(CompileError::ExpectedVariableName) {

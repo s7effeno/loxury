@@ -1,8 +1,10 @@
+use std::cell::Cell;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::{collections::HashMap, mem};
 
-use crate::chunk::{Closure, Function, ObjUpvalue};
+use crate::chunk::{Closure, Function, ObjUpvalue, Value};
 
 #[derive(Default)]
 struct Interner {
@@ -22,6 +24,7 @@ impl Interner {
             full: Vec::new(),
         }
     }
+
     pub fn intern(&mut self, name: &str) -> u32 {
         if let Some(&id) = self.map.get(name) {
             return id;
@@ -34,6 +37,7 @@ impl Interner {
         debug_assert!(self.intern(name) == id);
         id
     }
+
     pub fn lookup(&self, id: u32) -> &str {
         self.vec[id as usize]
     }
@@ -55,52 +59,63 @@ impl Interner {
     }
 }
 
-trait Trace<T: FnMut(GcHandle<Self>)>: Sized {
-    fn trace(&self, tracer: T);
-}
-
 pub struct Arena<T> {
     objects: Vec<GcObject<T>>,
+    live:    Vec<bool>,
+    recycle: Vec<usize>,
 }
 
 impl<T> Default for Arena<T> {
     fn default() -> Self {
         Self {
-            objects: Vec::default(),
+            objects: vec![],
+            live:    vec![],
+            recycle: vec![],
         }
     }
 }
 
+#[derive(Debug)]
 struct GcObject<T> {
-    value: T,
-    marked: bool,
+    value:  T,
+    marked: Cell<bool>,
 }
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct GcHandle<T> {
-    idx: usize,
+    idx:   usize,
     _type: PhantomData<*mut T>,
+}
+
+impl<T> Hash for GcHandle<T> {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.idx.hash(hasher)
+    }
 }
 
 impl<T> GcHandle<T> {
     fn new(index: usize) -> Self {
         Self {
-            idx: index,
+            idx:   index,
             _type: PhantomData::default(),
         }
     }
 }
 
-impl<T> Clone for GcHandle<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T> Copy for GcHandle<T> {}
+impl<T> Clone for GcHandle<T> { fn clone(&self) -> Self { *self } }
+impl<T> Copy  for GcHandle<T> {}
 
 pub trait Allocate<T> {
     fn alloc(&mut self, value: T) -> GcHandle<T>;
+}
+
+pub trait Mark<T> {
+    fn mark(&self, value: GcHandle<T>) -> bool;
+}
+
+pub trait _Allocate {
+    type Item;
+    fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item>;
 }
 
 macro_rules! define_heap {
@@ -111,16 +126,24 @@ macro_rules! define_heap {
         }
 
         $(
-            impl Allocate<<$ty as _Allocate>::Item> for $name {
+            impl Mark<<$ty as _Allocate>::Item> for $name {
+                fn mark(&self, handle: GcHandle<<$ty as _Allocate>::Item>) -> bool {
+                    if !self.$arena.mark(handle) {
+                        let obj = &self.$arena[handle];
+                        obj.trace(&self);
+                    }
+                    true
+                }
+            }
 
+            impl Allocate<<$ty as _Allocate>::Item> for $name {
                 fn alloc(&mut self, value: <$ty as _Allocate>::Item) -> GcHandle<<$ty as _Allocate>::Item> {
                     self.$arena.alloc(value)
                 }
             }
 
             impl Index<GcHandle<<$ty as _Allocate>::Item>> for $name {
-                type Output = <$ty as Index<GcHandle< <$ty as _Allocate>::Item >>>::Output;
-
+                type Output = <$ty as Index<GcHandle<<$ty as _Allocate>::Item>>>::Output;
                 fn index(&self, idx: GcHandle<<$ty as _Allocate>::Item>) -> &Self::Output {
                     &self.$arena[idx]
                 }
@@ -137,70 +160,148 @@ macro_rules! define_heap {
 
 define_heap!(Heap {
     arena_function: Arena<Function>,
-    arena_upvalues: Arena<ObjUpvalue>,
-    arena_closure: Arena<Closure>,
-    arena_string: StringArena,
+    arena_upvalue:  Arena<ObjUpvalue>,
+    arena_closure:  Arena<Closure>,
+    arena_string:   StringArena,
 });
+
+
+impl Heap {
+    pub fn sweep(&mut self) {
+        self.arena_function.sweep();
+        self.arena_upvalue.sweep();
+        self.arena_closure.sweep();
+    }
+}
+
+impl<T> _Allocate for Arena<T> {
+    type Item = T;
+
+    fn alloc(&mut self, value: T) -> GcHandle<T> {
+        let pos = if let Some(pos) = self.recycle.pop() {
+            self.objects[pos] = GcObject { value, marked: false.into() };
+            self.live[pos] = true;
+            pos
+        } else {
+            let pos = self.objects.len();
+            self.objects.push(GcObject { value, marked: false.into() });
+            self.live.push(true);
+            pos
+        };
+        GcHandle::new(pos)
+    }
+}
+
+impl<T> Arena<T> {
+    fn sweep(&mut self) {
+        for i in 0..self.live.len() {
+            if !self.live[i] { continue; }
+            if self.objects[i].marked.get() {
+                self.objects[i].marked.set(false);
+            } else {
+                self.live[i] = false;
+                self.recycle.push(i);
+            }
+        }
+    }
+}
+
+impl<T> Mark<T> for Arena<T> {
+    fn mark(&self, idx: GcHandle<T>) -> bool {
+        debug_assert!(self.live[idx.idx], "attempted to mark a freed slot");
+        if self.objects[idx.idx].marked.get() {
+            return true;
+        }
+        self.objects[idx.idx].marked.set(true);
+        false
+    }
+}
+
+impl<T> Index<GcHandle<T>> for Arena<T> {
+    type Output = T;
+    fn index(&self, idx: GcHandle<T>) -> &T {
+        debug_assert!(self.live[idx.idx], "use-after-free");
+        &self.objects[idx.idx].value
+    }
+}
+
+impl<T> IndexMut<GcHandle<T>> for Arena<T> {
+    fn index_mut(&mut self, idx: GcHandle<T>) -> &mut T {
+        debug_assert!(self.live[idx.idx], "use-after-free");
+        &mut self.objects[idx.idx].value
+    }
+}
 
 #[derive(Default)]
 pub struct StringArena {
     interner: Interner,
-    arena: Arena<u32>,
 }
 
 impl _Allocate for StringArena {
     type Item = String;
     fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item> {
         let index = self.interner.intern(&value);
-        dbg!(index);
-        GcHandle::new(self.arena.alloc(index as u32).idx)
+        GcHandle::new(index as usize)
     }
 }
 
 impl Index<GcHandle<String>> for StringArena {
     type Output = str;
     fn index(&self, index: GcHandle<String>) -> &Self::Output {
-        dbg!(index.idx);
-        let index = self.arena[GcHandle::new(index.idx)];
-        self.interner.lookup(index)
+        self.interner.lookup(index.idx as u32)
     }
 }
 
 impl IndexMut<GcHandle<String>> for StringArena {
-    fn index_mut(&mut self, index: GcHandle<String>) -> &mut Self::Output {
+    fn index_mut(&mut self, _: GcHandle<String>) -> &mut Self::Output {
         panic!()
     }
 }
 
-pub trait _Allocate {
-    type Item;
-    fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item>;
-}
-
-impl<T> Index<GcHandle<T>> for Arena<T> {
-    type Output = T;
-    fn index(&self, idx: GcHandle<T>) -> &Self::Output {
-        dbg!(idx.idx);
-        &self.objects[idx.idx].value
+impl Mark<String> for StringArena {
+    fn mark(&self, _: GcHandle<String>) -> bool {
+        true
     }
 }
 
-impl<T> IndexMut<GcHandle<T>> for Arena<T> {
-    fn index_mut(&mut self, idx: GcHandle<T>) -> &mut Self::Output {
-        &mut self.objects[idx.idx].value
+pub trait Trace {
+    fn trace(&self, _heap: &Heap) {}
+}
+
+impl Trace for &str {}
+
+impl Trace for Function {
+    fn trace(&self, heap: &Heap) {
+        for v in &self.chunk.constants {
+            v.trace(heap);
+        }
     }
 }
 
-impl<T> _Allocate for Arena<T> {
-    type Item = T;
-    fn alloc(&mut self, value: T) -> GcHandle<T> {
-        dbg!(self.objects.len());
-        self.objects.push(GcObject {
-            value: value,
-            marked: false,
-        });
-        GcHandle::new(self.objects.len() - 1)
+impl Trace for ObjUpvalue {
+    fn trace(&self, heap: &Heap) {
+        if let Self::Closed(v) = self {
+            v.trace(heap);
+        }
     }
 }
 
-fn main() {}
+impl Trace for Closure {
+    fn trace(&self, heap: &Heap) {
+        heap.mark(self.function);
+        for v in &self.upvalues {
+            heap.mark(*v);
+        }
+    }
+}
+
+impl Trace for Value {
+    fn trace(&self, heap: &Heap) {
+        match self {
+            Self::String(v)   => { heap.mark(*v); }
+            Self::Function(v) => { heap.mark(*v); }
+            Self::Closure(v)  => { heap.mark(*v); }
+            _ => (),
+        }
+    }
+}

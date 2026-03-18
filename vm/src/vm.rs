@@ -1,8 +1,8 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
-use crate::chunk::{Closure, Function, FunctionKind, ObjUpvalue, OpCode, Value, ValueDisplay};
+use crate::chunk::{Closure, FunctionKind, ObjUpvalue, OpCode, Value, ValueDisplay};
 use crate::compiler::Compiler;
-use crate::gc::{GcHandle, Heap, Allocate};
+use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
@@ -416,9 +416,28 @@ impl Vm {
 
     fn set_upvalue(&mut self, upvalue: GcHandle<ObjUpvalue>) {
         let upvalue = &mut self.objects[upvalue];
+        let update = self.stack.last().unwrap();
         match upvalue {
-            ObjUpvalue::Open(ref mut index) => *index = self.stack.len() - 1,
-            ObjUpvalue::Closed(ref mut value) => *value = *self.stack.last().unwrap(),
+            ObjUpvalue::Open(slot) => self.stack[*slot] = *update,
+            ObjUpvalue::Closed(ref mut value) => *value = *update
         }
+    }
+
+    fn mark_roots(&self) {
+        for slot in &*self.stack {
+            slot.trace(&self.objects);
+        }
+        for frame in &*self.frames {
+            let _ = self.objects.mark(frame.closure);
+        }
+        for upvalue in &*self.open_upvalues {
+            self.objects.mark(*upvalue);
+        }
+        for (k, v) in &self.globals {
+            self.objects.mark(*k);
+            v.trace(&self.objects);
+        }
+
+        // don't care about compiler's temporary object, only collect at runtime
     }
 }

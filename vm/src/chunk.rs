@@ -1,7 +1,10 @@
 use std::fmt::{self, Display};
 
 // use crate::gc::{Gc, GcHandle, Manager};
-use crate::{gc::{GcHandle, Heap}, location::Coords};
+use crate::{
+    gc::{GcHandle, Heap},
+    location::Coords,
+};
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -72,7 +75,7 @@ impl Chunk {
                 let index = *bytes.next().unwrap().1 as usize;
                 let arg = &self.constants[index];
                 print!("{} {} ", $op_name, index);
-                println!("{}", ValueDisplay(arg, &objects));
+                print!("{}", ValueDisplay(arg, &objects));
                 println!("");
             }};
         }
@@ -299,29 +302,28 @@ pub struct ValueDisplay<'a>(pub &'a Value, pub &'a Heap);
 
 impl<'a> Display for ValueDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let Self(&v, o) = self;
-            match v {
-                Value::Bool(v) => write!(f, "{v}"),
-                Value::Nil => write!(f, "nil"),
-                Value::Number(v) => write!(f, "{v}"),
-                Value::String(v) => {
-                    let v = &o[v];
-                    write!(f, "{v}")
-                }
-                Value::Function(v) => {
-                    let v = &o[v];
-                    write!(f, "{v}")
-                }
-                Value::NativeFunction { .. } => {
-                    write!(f, "<native fn>")
-                }
-                Value::Closure(v) => {
-                    let function = o[v].function;
-                    let function = &o[function];
-                    write!(f, "{function}")
-                }
+        let Self(&v, o) = self;
+        match v {
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(v) => write!(f, "{v}"),
+            Value::String(v) => {
+                let v = &o[v];
+                write!(f, "{v}")
             }
-        
+            Value::Function(v) => {
+                let v = &o[v];
+                write!(f, "{v}")
+            }
+            Value::NativeFunction { .. } => {
+                write!(f, "<native fn>")
+            }
+            Value::Closure(v) => {
+                let function = o[v].function;
+                let function = &o[function];
+                write!(f, "{function}")
+            }
+        }
     }
 }
 
