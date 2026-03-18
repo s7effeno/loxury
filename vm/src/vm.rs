@@ -51,7 +51,7 @@ impl Vm {
     }
 
     pub fn define_native(&mut self, name: &str, arity: u8, f: fn(&[Value]) -> Value) {
-        let name = self.objects.alloc(name.to_owned());
+        let name = self.alloc(name.to_owned());
         self.stack.push(Value::String(name));
         self.globals
             .insert(name, Value::NativeFunction { arity, f });
@@ -70,8 +70,8 @@ impl Vm {
             FunctionKind::Script,
         )
         .compile()?;
-        let function = self.objects.alloc(function);
-        let closure = self.objects.alloc(Closure::new(function));
+        let function = self.alloc(function);
+        let closure = self.alloc(Closure::new(function));
 
         self.frames.push(CallFrame::new(closure, 0));
         self.stack.push(Value::Closure(closure));
@@ -157,7 +157,7 @@ impl Vm {
                         }
                         (Value::String(a), Value::String(b)) => {
                             let value = self.objects[a].to_owned() + &self.objects[b];
-                            let value = self.objects.alloc(value);
+                            let value = self.alloc(value);
                             self.stack.push(Value::String(value));
                         }
                         _ => return self.error(RunError::ExpectedNumbersOrStrings),
@@ -324,7 +324,7 @@ impl Vm {
                 OpCode::Closure => {
                     let function = read_constant!().try_as_function().unwrap();
                     let closure = Closure::new(function);
-                    let closure_obj = self.objects.alloc(closure);
+                    let closure_obj = self.alloc(closure);
                     self.stack.push(Value::Closure(closure_obj));
 
                     let closure = &self.objects[closure_obj];
@@ -395,13 +395,13 @@ impl Vm {
                 return *upvalue_obj;
             } else if *upvalue < slot {
                 let upvalue = ObjUpvalue::Open(slot);
-                let upvalue = self.objects.alloc(upvalue);
+                let upvalue = self.alloc(upvalue);
                 self.open_upvalues.insert(i + 1, upvalue);
                 return upvalue;
             }
         }
         let upvalue = ObjUpvalue::Open(slot);
-        let upvalue = self.objects.alloc(upvalue);
+        let upvalue = self.alloc(upvalue);
         self.open_upvalues.push(upvalue);
         upvalue
     }
@@ -439,5 +439,15 @@ impl Vm {
         }
 
         // don't care about compiler's temporary object, only collect at runtime
+    }
+
+    fn alloc<T>(&mut self, value: T) -> GcHandle<T> 
+    where Heap: Allocate<T> 
+    {
+        if self.objects.should_sweep() {
+            self.mark_roots();
+            self.objects.sweep();
+        }
+        self.objects.alloc(value)
     }
 }

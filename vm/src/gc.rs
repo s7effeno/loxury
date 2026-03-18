@@ -5,6 +5,7 @@ use std::ops::{Index, IndexMut};
 use std::{collections::HashMap, mem};
 
 use crate::chunk::{Closure, Function, ObjUpvalue, Value};
+use crate::vm::Vm;
 
 #[derive(Default)]
 struct Interner {
@@ -115,14 +116,26 @@ pub trait Mark<T> {
 
 pub trait _Allocate {
     type Item;
-    fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item>;
+    fn alloc(&mut self, value: Self::Item) -> (GcHandle<Self::Item>, usize);
 }
 
 macro_rules! define_heap {
     ($name:ident { $($arena:ident: $ty:ty),* $(,)? }) => {
-        #[derive(Default)]
+        // #[derive(Default)]
         pub struct $name {
             $($arena: $ty,)*
+            bytes_allocated: usize,
+            next_gc: usize,
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    $($arena: <$ty>::default(),)*
+                    bytes_allocated: 0,
+                    next_gc: 1024 * 1024,
+                }
+            }
         }
 
         $(
@@ -138,7 +151,9 @@ macro_rules! define_heap {
 
             impl Allocate<<$ty as _Allocate>::Item> for $name {
                 fn alloc(&mut self, value: <$ty as _Allocate>::Item) -> GcHandle<<$ty as _Allocate>::Item> {
-                    self.$arena.alloc(value)
+                    let (handle, bytes) = self.$arena.alloc(value);
+                    self.bytes_allocated += bytes;
+                    handle
                 }
             }
 
@@ -167,33 +182,40 @@ define_heap!(Heap {
 
 
 impl Heap {
+    // TODO: move these inside macro
     pub fn sweep(&mut self) {
         self.arena_function.sweep();
         self.arena_upvalue.sweep();
         self.arena_closure.sweep();
+        self.next_gc *= 2;
+    }
+
+    pub fn should_sweep(&self) -> bool {
+        self.bytes_allocated > self.next_gc
     }
 }
 
 impl<T> _Allocate for Arena<T> {
     type Item = T;
 
-    fn alloc(&mut self, value: T) -> GcHandle<T> {
-        let pos = if let Some(pos) = self.recycle.pop() {
+    fn alloc(&mut self, value: T) -> (GcHandle<T>, usize) {
+        let (pos, bytes) = if let Some(pos) = self.recycle.pop() {
             self.objects[pos] = GcObject { value, marked: false.into() };
             self.live[pos] = true;
-            pos
+            (pos, 0)
         } else {
             let pos = self.objects.len();
             self.objects.push(GcObject { value, marked: false.into() });
             self.live.push(true);
-            pos
+            (pos, mem::size_of::<T>())
         };
-        GcHandle::new(pos)
+        (GcHandle::new(pos), bytes)
     }
 }
 
 impl<T> Arena<T> {
-    fn sweep(&mut self) {
+    fn sweep(&mut self) -> usize {
+        let mut freed = 0;
         for i in 0..self.live.len() {
             if !self.live[i] { continue; }
             if self.objects[i].marked.get() {
@@ -201,8 +223,10 @@ impl<T> Arena<T> {
             } else {
                 self.live[i] = false;
                 self.recycle.push(i);
+                freed += mem::size_of::<T>();
             }
         }
+        freed
     }
 }
 
@@ -239,9 +263,9 @@ pub struct StringArena {
 
 impl _Allocate for StringArena {
     type Item = String;
-    fn alloc(&mut self, value: Self::Item) -> GcHandle<Self::Item> {
+    fn alloc(&mut self, value: Self::Item) -> (GcHandle<Self::Item>, usize) {
         let index = self.interner.intern(&value);
-        GcHandle::new(index as usize)
+        (GcHandle::new(index as usize), value.bytes().len())
     }
 }
 
