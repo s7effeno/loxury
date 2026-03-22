@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::{collections::HashMap, mem};
 
-use crate::chunk::{Closure, Function, ObjUpvalue, Value};
+use crate::chunk::{Class, Closure, Function, ObjUpvalue, Value};
 use crate::vm::Vm;
 
 #[derive(Default)]
@@ -177,6 +177,7 @@ define_heap!(Heap {
     arena_function: Arena<Function>,
     arena_upvalue:  Arena<ObjUpvalue>,
     arena_closure:  Arena<Closure>,
+    arena_class: Arena<Class>,
     arena_string:   StringArena,
 });
 
@@ -184,10 +185,13 @@ define_heap!(Heap {
 impl Heap {
     // TODO: move these inside macro
     pub fn sweep(&mut self) {
-        self.arena_function.sweep();
-        self.arena_upvalue.sweep();
-        self.arena_closure.sweep();
-        self.next_gc *= 2;
+        let mut freed = 0;
+        freed += self.arena_function.sweep();
+        freed += self.arena_upvalue.sweep();
+        freed += self.arena_closure.sweep();
+        freed += self.arena_class.sweep();
+        self.bytes_allocated -= freed;
+        self.next_gc = 2 * self.bytes_allocated;
     }
 
     pub fn should_sweep(&self) -> bool {
@@ -296,6 +300,9 @@ impl Trace for &str {}
 
 impl Trace for Function {
     fn trace(&self, heap: &Heap) {
+        if let Some(name) = self.name {
+            heap.mark(name);
+        }
         for v in &self.chunk.constants {
             v.trace(heap);
         }
@@ -319,12 +326,19 @@ impl Trace for Closure {
     }
 }
 
+impl Trace for Class {
+    fn trace(&self, heap: &Heap) {
+        heap.mark(self.name);
+    }
+}
+
 impl Trace for Value {
     fn trace(&self, heap: &Heap) {
         match self {
             Self::String(v)   => { heap.mark(*v); }
             Self::Function(v) => { heap.mark(*v); }
             Self::Closure(v)  => { heap.mark(*v); }
+            Self::Class(v) => { heap.mark(*v); }
             _ => (),
         }
     }

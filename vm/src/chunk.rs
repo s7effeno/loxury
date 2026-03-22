@@ -191,6 +191,8 @@ impl Chunk {
                 OpCode::CloseUpvalue => {
                     simple!("close upvalue")
                 }
+                OpCode::Class => {
+                }
             }
         }
         Ok(())
@@ -227,6 +229,7 @@ pub enum OpCode {
     Closure,
     CloseUpvalue,
     Return,
+    Class,
 }
 
 impl TryFrom<u8> for OpCode {
@@ -263,6 +266,7 @@ impl TryFrom<u8> for OpCode {
             26 => Ok(Self::Closure),
             27 => Ok(Self::CloseUpvalue),
             28 => Ok(Self::Return),
+            29 => Ok(Self::Class),
             _ => Err(()),
         }
     }
@@ -278,6 +282,7 @@ pub enum Value {
     // TODO: ensure not wrapping is ok
     NativeFunction { arity: u8, f: fn(&[Value]) -> Value },
     Closure(GcHandle<Closure>),
+    Class(GcHandle<Class>),
 }
 
 impl Value {
@@ -300,6 +305,21 @@ impl Value {
 
 pub struct ValueDisplay<'a>(pub &'a Value, pub &'a Heap);
 
+pub struct FunctionDisplay<'a>(pub &'a Function, pub &'a Heap);
+
+impl<'a> Display for FunctionDisplay<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(v, o) = self;
+        match v.name {
+            Some(name) => {
+                let name = &o[name];
+                write!(f, "<fn {name}>")
+            }
+            None => write!(f, "<script>"),
+        }
+    }
+}
+
 impl<'a> Display for ValueDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self(&v, o) = self;
@@ -313,7 +333,7 @@ impl<'a> Display for ValueDisplay<'a> {
             }
             Value::Function(v) => {
                 let v = &o[v];
-                write!(f, "{v}")
+                write!(f, "{}", FunctionDisplay(v, o))
             }
             Value::NativeFunction { .. } => {
                 write!(f, "<native fn>")
@@ -321,7 +341,12 @@ impl<'a> Display for ValueDisplay<'a> {
             Value::Closure(v) => {
                 let function = o[v].function;
                 let function = &o[function];
-                write!(f, "{function}")
+                write!(f, "{}", FunctionDisplay(function, o))
+            }
+            Value::Class(v) => {
+                let class = &o[v];
+                let name = &o[class.name];
+                write!(f, "{name}")
             }
         }
     }
@@ -331,7 +356,7 @@ impl<'a> Display for ValueDisplay<'a> {
 pub struct Function {
     pub arity: u8,
     pub chunk: Chunk,
-    pub name: Option<String>,
+    pub name: Option<GcHandle<String>>,
     pub kind: FunctionKind,
     // FIXME: u8?
     pub upvalue_count: usize,
@@ -351,15 +376,6 @@ impl Function {
             name: None,
             upvalue_count: 0,
             kind,
-        }
-    }
-}
-
-impl Display for Function {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.name {
-            Some(name) => write!(f, "<fn {}>", name),
-            None => write!(f, "<script>"),
         }
     }
 }
@@ -406,3 +422,21 @@ impl ObjUpvalue {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct Class {
+    pub name: GcHandle<String>,
+}
+
+impl Class {
+    pub fn new(name: GcHandle<String>) -> Self {
+        Self {
+            name
+        }
+    }
+}
+
+pub struct Instance {
+    class: GcHandle<Class>,
+}
+

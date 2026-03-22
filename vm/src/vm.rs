@@ -1,6 +1,6 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
-use crate::chunk::{Closure, FunctionKind, ObjUpvalue, OpCode, Value, ValueDisplay};
+use crate::chunk::{Class, Closure, FunctionKind, ObjUpvalue, OpCode, Value, ValueDisplay};
 use crate::compiler::Compiler;
 use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
 use crate::lex::Lexer;
@@ -364,6 +364,15 @@ impl Vm {
                     let top = self.stack.len() - 1;
                     self.close_upvalues(top);
                     self.stack.pop();
+                }
+                OpCode::Class => {
+                    let name = read_constant!().try_as_string().unwrap();
+                    let class = self.objects.alloc(Class::new(name));
+                    self.stack.push(
+                        Value::Class(
+                            class
+                        )
+                    );
                 }
             }
         }

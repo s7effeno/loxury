@@ -1,7 +1,7 @@
 // TODO: automate `emit_...` to avoid passing `coords`
 // TODO: maybe bind function name to FunctionKind::Function
 
-use crate::chunk::{Chunk, Function, FunctionKind, OpCode, Upvalue, Value};
+use crate::chunk::{Chunk, Function, FunctionDisplay, FunctionKind, OpCode, Upvalue, Value};
 use crate::gc::{Allocate, Heap};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
@@ -262,7 +262,7 @@ impl<'a, 't> Compiler<'a, 't> {
             self.current_chunk().write_nowhere(OpCode::Nil as u8);
             self.current_chunk().write_nowhere(OpCode::Return as u8);
 
-            println!("---{}---", self.frame.function);
+            println!("---{}---", FunctionDisplay(&self.frame.function, self.objects));
             let _ = self.frame.function.chunk.disassemble(self.objects);
 
             let ret = mem::replace(
@@ -460,7 +460,9 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn declaration(&mut self) {
-        if self.next_token_if_eq(TokenKind::Fun).is_some() {
+        if self.next_token_if_eq(TokenKind::Class).is_some() {
+            self.class_declaration();
+        } else if self.next_token_if_eq(TokenKind::Fun).is_some() {
             self.fun_declaration();
         } else if self.next_token_if_eq(TokenKind::Var).is_some() {
             self.var_declaration()
@@ -716,9 +718,10 @@ impl<'a, 't> Compiler<'a, 't> {
 
         let (mut function, upvalues) = self.unnest();
 
-        function.name = Some(name.into());
+        let name = self.objects.alloc(name.into());
+        function.name = Some(name);
 
-        println!("---{}---", function);
+        println!("---{}---", FunctionDisplay(&function, self.objects));
         let _ = function.chunk.disassemble(self.objects);
 
         let function_obj = self.objects.alloc(function);
@@ -730,6 +733,16 @@ impl<'a, 't> Compiler<'a, 't> {
         for upvalue in &*upvalues {
             self.emit_byte(if upvalue.is_local { 1 } else { 0 }, coords);
             self.emit_byte(upvalue.index, coords);
+        }
+    }
+
+    fn class_declaration(&mut self) {
+        if let Some(identifier) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
+            self.identifier_constant(identifier.span().into());
+            let coords = identifier.coords();
+            self.declare_variable(identifier);
+
+            self.emit_op(OpCode::Class, coords);
         }
     }
 
