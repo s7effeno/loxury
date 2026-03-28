@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::{collections::HashMap, mem};
 
-use crate::chunk::{Class, Closure, Function, ObjUpvalue, Value};
+use crate::chunk::{Class, Closure, Function, Instance, ObjUpvalue, Value};
 use crate::vm::Vm;
 
 #[derive(Default)]
@@ -178,6 +178,7 @@ define_heap!(Heap {
     arena_upvalue:  Arena<ObjUpvalue>,
     arena_closure:  Arena<Closure>,
     arena_class: Arena<Class>,
+    arena_instance: Arena<Instance>,
     arena_string:   StringArena,
 });
 
@@ -329,6 +330,13 @@ impl Trace for Closure {
 impl Trace for Class {
     fn trace(&self, heap: &Heap) {
         heap.mark(self.name);
+    }
+}
+
+impl Trace for Instance {
+    fn trace(&self, heap: &Heap) {
+        heap.mark(self.class);
+        // TODO: mark properties
     }
 }
 

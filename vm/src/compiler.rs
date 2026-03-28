@@ -738,11 +738,16 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn class_declaration(&mut self) {
         if let Some(identifier) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
-            self.identifier_constant(identifier.span().into());
+            let index = self.identifier_constant(identifier.span().into());
             let coords = identifier.coords();
             self.declare_variable(identifier);
 
             self.emit_op(OpCode::Class, coords);
+            self.emit_byte(index, coords);
+            self.define_variable(index, coords);
+
+            self.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
+            self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
         }
     }
 
@@ -802,7 +807,7 @@ impl<'a, 't> Compiler<'a, 't> {
             let can_assign = precedence <= Precedence::Assignment;
             if self.prefix_rule(&token, can_assign).is_some() {
                 while let Some(token) = self.next_token_if(|t| precedence <= Self::precedence(t)) {
-                    self.infix_rule(&token).unwrap();
+                    self.infix_rule(&token, can_assign).unwrap();
                 }
 
                 if let Some(coords) = self
@@ -866,7 +871,7 @@ impl<'a, 't> Compiler<'a, 't> {
         Some(())
     }
 
-    fn infix_rule<'b>(&'b mut self, token: &AtCoords<Token<'a>>) -> Option<()> {
+    fn infix_rule<'b>(&'b mut self, token: &AtCoords<Token<'a>>, can_assign: bool) -> Option<()> {
         match token.kind() {
             TokenKind::Minus => self.binary(token),
             TokenKind::Plus => self.binary(token),
@@ -881,6 +886,7 @@ impl<'a, 't> Compiler<'a, 't> {
             TokenKind::And => self.and(token),
             TokenKind::Or => self.or(token),
             TokenKind::LeftParen => self.call(token),
+            TokenKind::Dot => self.dot(token, can_assign),
             _ => return None,
         };
         Some(())
@@ -893,7 +899,7 @@ impl<'a, 't> Compiler<'a, 't> {
             TokenKind::LeftBrace => Precedence::None,
             TokenKind::RightBrace => Precedence::None,
             TokenKind::Comma => Precedence::None,
-            TokenKind::Dot => Precedence::None,
+            TokenKind::Dot => Precedence::Call,
             TokenKind::Minus => Precedence::Term,
             TokenKind::Plus => Precedence::Term,
             TokenKind::Semicolon => Precedence::None,
@@ -1045,6 +1051,21 @@ impl<'a, 't> Compiler<'a, 't> {
         let arg_count = self.argument_list();
         self.emit_op(OpCode::Call, token.coords());
         self.emit_byte(arg_count, token.coords());
+    }
+
+    fn dot(&mut self, token: &AtCoords<Token<'a>>, can_assign: bool) {
+        if let Some(identifier) = self.consume(TokenKind::Identifier, CompileError::ExpectedProperty) {
+            let coords = identifier.coords();
+            let name = self.identifier_constant(identifier.span().into());
+            if can_assign && self.next_token_if_eq(TokenKind::Equal).is_some() {
+                self.expression();
+                self.emit_op(OpCode::SetProperty, coords);
+                self.emit_byte(name, coords);
+            } else {
+                self.emit_op(OpCode::GetProperty, coords);
+                self.emit_byte( name, coords);
+            }
+        }
     }
 
     fn literal<'b>(&'b mut self, token: &AtCoords<Token<'a>>) {

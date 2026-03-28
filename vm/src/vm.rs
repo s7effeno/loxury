@@ -1,6 +1,6 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
-use crate::chunk::{Class, Closure, FunctionKind, ObjUpvalue, OpCode, Value, ValueDisplay};
+use crate::chunk::{Class, Closure, FunctionKind, Instance, ObjUpvalue, OpCode, Value, ValueDisplay};
 use crate::compiler::Compiler;
 use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
 use crate::lex::Lexer;
@@ -318,6 +318,14 @@ impl Vm {
                             }
                             self.frames.push(CallFrame::new(c, base));
                         }
+                        Value::Class(c) => {
+                            // ignore arguments
+                            for _ in 0..args_count + 1 {
+                                self.stack.pop();
+                            }
+                            let instance = self.objects.alloc(Instance::new(c));
+                            self.stack.push(Value::Instance(instance));
+                        }
                         _ => self.error(RunError::NotCallable)?,
                     }
                 }
@@ -373,6 +381,32 @@ impl Vm {
                             class
                         )
                     );
+                }
+                OpCode::GetProperty => {
+                    let Ok(instance) = self.stack.last().unwrap().try_as_instance() else {
+                        return self.error(RunError::NotAnInstance);
+                    };
+                    let instance = &self.objects[instance];
+                    let name = read_constant!().try_as_string().unwrap();
+                    let name = &self.objects[name];
+                    if let Some(value) = instance.fields.get(name) {
+                        self.stack.pop();
+                        self.stack.push(value.clone());
+                    } else {
+                        return self.error(RunError::NotCallable)
+                    }
+                }
+                OpCode::SetProperty => {
+                    let i = self.stack.len() - 2;
+                    let Ok(instance) = self.stack[i].try_as_instance() else {
+                        return self.error(RunError::NotAnInstance);
+                    };
+                    let name = read_constant!().try_as_string().unwrap();
+                    let name = &self.objects[name].to_owned();
+                    let instance = &mut self.objects[instance];
+                    let value = self.stack.pop().unwrap();
+                    instance.fields.insert(name.into(), value);
+                    self.stack.push(value);
                 }
             }
         }

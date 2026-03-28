@@ -33,13 +33,14 @@ pub enum CompileError {
     TopLevelReturn,
     TooManyUpvalues,
     ExpectedClassName,
+    ExpectedProperty,
 }
 
 impl Display for CompileError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnclosedString => write!(f, "expected '\"' at the end of string"),
-            Self::StrayChar(c) => write!(f, "stray '{}' in program", c),
+            Self::StrayChar(c) => write!(f, "stray '{c}' in program"),
             Self::UnclosedGrouping => write!(f, "expected ')' after expression"),
             Self::ExpectedExpression => write!(f, "expected expression"),
             Self::UnclosedStatement => write!(f, "expected ';' at the end of statement"),
@@ -65,6 +66,7 @@ impl Display for CompileError {
             Self::TopLevelReturn => write!(f, "can't return from top-level code"),
             Self::TooManyUpvalues => write!(f, "can't have more than 256 closure variables"),
             Self::ExpectedClassName => write!(f, "expected class name"),
+            Self::ExpectedProperty => write!(f, "expected property name after '.'"),
         }
     }
 }
@@ -77,7 +79,9 @@ pub enum RunError {
     ExpectedNumbers,
     ExpectedNumbersOrStrings,
     UndefinedVariable(String),
+    UndefinedProperty(String),
     NotCallable,
+    NotAnInstance,
     WrongArity(u8, u8),
 }
 
@@ -87,8 +91,10 @@ impl Display for RunError {
             Self::ExpectedNumber => write!(f, "operand must be a number"),
             Self::ExpectedNumbers => write!(f, "operands must be numbers"),
             Self::ExpectedNumbersOrStrings => write!(f, "operands must be numbers or strings"),
-            Self::UndefinedVariable(v) => write!(f, "variable {} is not defined", v),
+            Self::UndefinedVariable(v) => write!(f, "variable {v} is not defined"),
+            Self::UndefinedProperty(v) => write!(f, "property {v} is not defined"),
             Self::NotCallable => write!(f, "can only call functions and classes"),
+            Self::NotAnInstance => write!(f, "can only have properties on instances"),
             Self::WrongArity(expected, actual) => {
                 write!(f, "expected {} arguments, got {}", expected, actual)
             }

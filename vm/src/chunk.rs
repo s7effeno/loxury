@@ -1,4 +1,5 @@
 use std::fmt::{self, Display};
+use std::collections::HashMap;
 
 // use crate::gc::{Gc, GcHandle, Manager};
 use crate::{
@@ -192,6 +193,13 @@ impl Chunk {
                     simple!("close upvalue")
                 }
                 OpCode::Class => {
+                    constant!("class");
+                }
+                OpCode::GetProperty => {
+                    constant!("get property")
+                }
+                OpCode::SetProperty => {
+                    constant!("set property")
                 }
             }
         }
@@ -212,6 +220,8 @@ pub enum OpCode {
     SetGlobal,
     GetUpvalue,
     SetUpvalue,
+    GetProperty,
+    SetProperty,
     Equal,
     Greater,
     Less,
@@ -249,24 +259,26 @@ impl TryFrom<u8> for OpCode {
             9 => Ok(Self::SetGlobal),
             10 => Ok(Self::GetUpvalue),
             11 => Ok(Self::SetUpvalue),
-            12 => Ok(Self::Equal),
-            13 => Ok(Self::Greater),
-            14 => Ok(Self::Less),
-            15 => Ok(Self::Add),
-            16 => Ok(Self::Subtract),
-            17 => Ok(Self::Multiply),
-            18 => Ok(Self::Divide),
-            19 => Ok(Self::Not),
-            20 => Ok(Self::Negate),
-            21 => Ok(Self::Print),
-            22 => Ok(Self::Jump),
-            23 => Ok(Self::JumpIfFalse),
-            24 => Ok(Self::Loop),
-            25 => Ok(Self::Call),
-            26 => Ok(Self::Closure),
-            27 => Ok(Self::CloseUpvalue),
-            28 => Ok(Self::Return),
-            29 => Ok(Self::Class),
+            12 => Ok(Self::GetProperty),
+            13 => Ok(Self::SetProperty),
+            14 => Ok(Self::Equal),
+            15 => Ok(Self::Greater),
+            16 => Ok(Self::Less),
+            17 => Ok(Self::Add),
+            18 => Ok(Self::Subtract),
+            19 => Ok(Self::Multiply),
+            20 => Ok(Self::Divide),
+            21 => Ok(Self::Not),
+            22 => Ok(Self::Negate),
+            23 => Ok(Self::Print),
+            24 => Ok(Self::Jump),
+            25 => Ok(Self::JumpIfFalse),
+            26 => Ok(Self::Loop),
+            27 => Ok(Self::Call),
+            28 => Ok(Self::Closure),
+            29 => Ok(Self::CloseUpvalue),
+            30 => Ok(Self::Return),
+            31 => Ok(Self::Class),
             _ => Err(()),
         }
     }
@@ -283,6 +295,7 @@ pub enum Value {
     NativeFunction { arity: u8, f: fn(&[Value]) -> Value },
     Closure(GcHandle<Closure>),
     Class(GcHandle<Class>),
+    Instance(GcHandle<Instance>),
 }
 
 impl Value {
@@ -296,6 +309,14 @@ impl Value {
 
     pub fn try_as_function(&self) -> Result<GcHandle<Function>, ()> {
         if let Self::Function(v) = self {
+            Ok(*v)
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn try_as_instance(&self) -> Result<GcHandle<Instance>, ()> {
+        if let Self::Instance(v) = self {
             Ok(*v)
         } else {
             Err(())
@@ -347,6 +368,12 @@ impl<'a> Display for ValueDisplay<'a> {
                 let class = &o[v];
                 let name = &o[class.name];
                 write!(f, "{name}")
+            }
+            Value::Instance(v) => {
+                let class = o[v].class;
+                let class = &o[class];
+                let name = &o[class.name];
+                write!(f, "{name} instance")
             }
         }
     }
@@ -431,12 +458,23 @@ pub struct Class {
 impl Class {
     pub fn new(name: GcHandle<String>) -> Self {
         Self {
-            name
+            name,
         }
     }
 }
 
+#[derive(Debug)]
 pub struct Instance {
-    class: GcHandle<Class>,
+    pub class: GcHandle<Class>,
+    pub fields: HashMap<String, Value>,
+}
+
+impl Instance {
+    pub fn new(class: GcHandle<Class>) -> Self {
+        Self {
+            class,
+            fields: HashMap::new()
+        }
+    }
 }
 
