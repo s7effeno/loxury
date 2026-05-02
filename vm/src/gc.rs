@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::{collections::HashMap, mem};
 
-use crate::chunk::{Class, Closure, Function, Instance, ObjUpvalue, Value};
+use crate::chunk::{BoundMethod, Class, Closure, Function, Instance, ObjUpvalue, Value};
 use crate::vm::Vm;
 
 #[derive(Default)]
@@ -62,7 +62,7 @@ impl Interner {
 
 pub struct Arena<T> {
     objects: Vec<GcObject<T>>,
-    live:    Vec<bool>,
+    live: Vec<bool>,
     recycle: Vec<usize>,
 }
 
@@ -70,7 +70,7 @@ impl<T> Default for Arena<T> {
     fn default() -> Self {
         Self {
             objects: vec![],
-            live:    vec![],
+            live: vec![],
             recycle: vec![],
         }
     }
@@ -78,13 +78,13 @@ impl<T> Default for Arena<T> {
 
 #[derive(Debug)]
 struct GcObject<T> {
-    value:  T,
+    value: T,
     marked: Cell<bool>,
 }
 
 #[derive(Eq, PartialEq, Debug)]
 pub struct GcHandle<T> {
-    idx:   usize,
+    idx: usize,
     _type: PhantomData<*mut T>,
 }
 
@@ -97,14 +97,18 @@ impl<T> Hash for GcHandle<T> {
 impl<T> GcHandle<T> {
     fn new(index: usize) -> Self {
         Self {
-            idx:   index,
+            idx: index,
             _type: PhantomData::default(),
         }
     }
 }
 
-impl<T> Clone for GcHandle<T> { fn clone(&self) -> Self { *self } }
-impl<T> Copy  for GcHandle<T> {}
+impl<T> Clone for GcHandle<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for GcHandle<T> {}
 
 pub trait Allocate<T> {
     fn alloc(&mut self, value: T) -> GcHandle<T>;
@@ -179,9 +183,9 @@ define_heap!(Heap {
     arena_closure:  Arena<Closure>,
     arena_class: Arena<Class>,
     arena_instance: Arena<Instance>,
+    arena_bound_method: Arena<BoundMethod>,
     arena_string:   StringArena,
 });
-
 
 impl Heap {
     // TODO: move these inside macro
@@ -205,12 +209,18 @@ impl<T> _Allocate for Arena<T> {
 
     fn alloc(&mut self, value: T) -> (GcHandle<T>, usize) {
         let (pos, bytes) = if let Some(pos) = self.recycle.pop() {
-            self.objects[pos] = GcObject { value, marked: false.into() };
+            self.objects[pos] = GcObject {
+                value,
+                marked: false.into(),
+            };
             self.live[pos] = true;
             (pos, 0)
         } else {
             let pos = self.objects.len();
-            self.objects.push(GcObject { value, marked: false.into() });
+            self.objects.push(GcObject {
+                value,
+                marked: false.into(),
+            });
             self.live.push(true);
             (pos, mem::size_of::<T>())
         };
@@ -222,7 +232,9 @@ impl<T> Arena<T> {
     fn sweep(&mut self) -> usize {
         let mut freed = 0;
         for i in 0..self.live.len() {
-            if !self.live[i] { continue; }
+            if !self.live[i] {
+                continue;
+            }
             if self.objects[i].marked.get() {
                 self.objects[i].marked.set(false);
             } else {
@@ -330,6 +342,7 @@ impl Trace for Closure {
 impl Trace for Class {
     fn trace(&self, heap: &Heap) {
         heap.mark(self.name);
+        // TODO: mark methods
     }
 }
 
@@ -343,11 +356,26 @@ impl Trace for Instance {
 impl Trace for Value {
     fn trace(&self, heap: &Heap) {
         match self {
-            Self::String(v)   => { heap.mark(*v); }
-            Self::Function(v) => { heap.mark(*v); }
-            Self::Closure(v)  => { heap.mark(*v); }
-            Self::Class(v) => { heap.mark(*v); }
+            Self::String(v) => {
+                heap.mark(*v);
+            }
+            Self::Function(v) => {
+                heap.mark(*v);
+            }
+            Self::Closure(v) => {
+                heap.mark(*v);
+            }
+            Self::Class(v) => {
+                heap.mark(*v);
+            }
             _ => (),
         }
+    }
+}
+
+impl Trace for BoundMethod {
+    fn trace(&self, heap: &Heap) {
+        self.receiver.trace(heap);
+        heap.mark(self.method);
     }
 }

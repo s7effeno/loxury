@@ -1,6 +1,8 @@
 // TODO (speedup): clone and push the function instead of accessing it every time through the objects manager
 // TODO: use infallible for `error`
-use crate::chunk::{Class, Closure, FunctionKind, Instance, ObjUpvalue, OpCode, Value, ValueDisplay};
+use crate::chunk::{
+    BoundMethod, Class, Closure, FunctionKind, Instance, ObjUpvalue, OpCode, Value, ValueDisplay,
+};
 use crate::compiler::Compiler;
 use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
 use crate::lex::Lexer;
@@ -56,6 +58,71 @@ impl Vm {
         self.globals
             .insert(name, Value::NativeFunction { arity, f });
         self.stack.pop();
+    }
+
+    fn call_closure(
+        &mut self,
+        closure: GcHandle<Closure>,
+        arg_count: u8,
+    ) -> Result<(), AtCoords<RunError>> {
+        let c = &self.objects[closure];
+        let arity = self.objects[c.function].arity;
+        if arity != arg_count {
+            self.error(RunError::WrongArity(arity, arg_count))?;
+        }
+        // FIXME: repeated operation
+        let base = self.stack.len() - 1 - arg_count as usize;
+        self.frames.push(CallFrame::new(closure, base));
+        Ok(())
+    }
+
+    fn call_value(&mut self, arg_count: u8) -> Result<(), AtCoords<RunError>> {
+        let base = self.stack.len() - 1 - arg_count as usize;
+        match self.stack[base] {
+            Value::NativeFunction { arity, f } => {
+                if arity != arg_count {
+                    self.error(RunError::WrongArity(arity, arg_count))?;
+                }
+                let result = f(&self.stack[base + 1..]);
+                // TODO: use `Vec::truncate`
+                for _ in 0..arg_count + 1 {
+                    self.stack.pop();
+                }
+                self.stack.push(result);
+                Ok(())
+            }
+            Value::Closure(c) => self.call_closure(c, arg_count),
+            Value::Class(c) => {
+                // ignore arguments
+                for _ in 0..arg_count + 1 {
+                    self.stack.pop();
+                }
+                let instance = self.objects.alloc(Instance::new(c));
+                self.stack.push(Value::Instance(instance));
+                Ok(())
+            }
+            _ => self.error(RunError::NotCallable),
+        }
+    }
+
+    fn bind_method(
+        &mut self,
+        class: GcHandle<Class>,
+        name: GcHandle<String>,
+    ) -> Result<(), AtCoords<RunError>> {
+        let c = &self.objects[class];
+        if let Some(method) = c.methods.get(&name) {
+            let bound = BoundMethod::new(
+                self.stack[self.stack.len() - 1],
+                method.try_as_closure().unwrap(),
+            );
+            self.objects.alloc(bound);
+            self.stack.pop();
+            self.stack.push()
+        } else {
+            let name = &self.objects[name];
+            self.error(RunError::UndefinedProperty(name.into()))
+        }
     }
 
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
@@ -296,38 +363,8 @@ impl Vm {
                     self.current_frame().ip -= offset as usize;
                 }
                 OpCode::Call => {
-                    let args_count = read_byte!();
-                    let base = self.stack.len() - 1 - args_count as usize;
-                    match self.stack[base] {
-                        Value::NativeFunction { arity, f } => {
-                            if arity != args_count {
-                                self.error(RunError::WrongArity(arity, args_count))?;
-                            }
-                            let result = f(&self.stack[base + 1..]);
-                            // TODO: use `Vec::truncate`
-                            for _ in 0..args_count + 1 {
-                                self.stack.pop();
-                            }
-                            self.stack.push(result);
-                        }
-                        Value::Closure(c) => {
-                            let closure = &self.objects[c];
-                            let arity = self.objects[closure.function].arity;
-                            if arity != args_count {
-                                self.error(RunError::WrongArity(arity, args_count))?;
-                            }
-                            self.frames.push(CallFrame::new(c, base));
-                        }
-                        Value::Class(c) => {
-                            // ignore arguments
-                            for _ in 0..args_count + 1 {
-                                self.stack.pop();
-                            }
-                            let instance = self.objects.alloc(Instance::new(c));
-                            self.stack.push(Value::Instance(instance));
-                        }
-                        _ => self.error(RunError::NotCallable)?,
-                    }
+                    let arg_count = read_byte!();
+                    self.call_value(arg_count)?
                 }
                 OpCode::Closure => {
                     let function = read_constant!().try_as_function().unwrap();
@@ -376,11 +413,7 @@ impl Vm {
                 OpCode::Class => {
                     let name = read_constant!().try_as_string().unwrap();
                     let class = self.objects.alloc(Class::new(name));
-                    self.stack.push(
-                        Value::Class(
-                            class
-                        )
-                    );
+                    self.stack.push(Value::Class(class));
                 }
                 OpCode::GetProperty => {
                     let Ok(instance) = self.stack.last().unwrap().try_as_instance() else {
@@ -388,12 +421,11 @@ impl Vm {
                     };
                     let instance = &self.objects[instance];
                     let name = read_constant!().try_as_string().unwrap();
-                    let name = &self.objects[name];
-                    if let Some(value) = instance.fields.get(name) {
+                    if let Some(value) = instance.fields.get(&name) {
                         self.stack.pop();
                         self.stack.push(value.clone());
                     } else {
-                        return self.error(RunError::NotCallable)
+                        self.bind_method(instance.class, name)
                     }
                 }
                 OpCode::SetProperty => {
@@ -402,12 +434,17 @@ impl Vm {
                         return self.error(RunError::NotAnInstance);
                     };
                     let name = read_constant!().try_as_string().unwrap();
-                    let name = &self.objects[name].to_owned();
                     let instance = &mut self.objects[instance];
                     let value = self.stack.pop().unwrap();
-                    instance.fields.insert(name.into(), value);
+                    instance.fields.insert(name, value);
                     self.stack.push(value);
                 }
+                OpCode::Method => {
+                    let name = read_constant!().try_as_string().unwrap();
+                    self.define_method(name);
+                } // OpCode::Method => {
+
+                  // }
             }
         }
     }
@@ -427,6 +464,13 @@ impl Vm {
             top -= 1;
         }
         self.open_upvalues.truncate(top);
+    }
+
+    fn define_method(&mut self, name: GcHandle<String>) {
+        let method = self.stack.pop().unwrap();
+        let class = self.stack[self.stack.len() - 1].try_as_class().unwrap();
+        let class = &mut self.objects[class];
+        class.methods.insert(name, method);
     }
 
     // FIXME: ugly
@@ -462,7 +506,7 @@ impl Vm {
         let update = self.stack.last().unwrap();
         match upvalue {
             ObjUpvalue::Open(slot) => self.stack[*slot] = *update,
-            ObjUpvalue::Closed(ref mut value) => *value = *update
+            ObjUpvalue::Closed(ref mut value) => *value = *update,
         }
     }
 
@@ -484,8 +528,9 @@ impl Vm {
         // don't care about compiler's temporary object, only collect at runtime
     }
 
-    fn alloc<T>(&mut self, value: T) -> GcHandle<T> 
-    where Heap: Allocate<T> 
+    fn alloc<T>(&mut self, value: T) -> GcHandle<T>
+    where
+        Heap: Allocate<T>,
     {
         if self.objects.should_sweep() {
             self.mark_roots();

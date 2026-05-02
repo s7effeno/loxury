@@ -1,5 +1,5 @@
-use std::fmt::{self, Display};
 use std::collections::HashMap;
+use std::fmt::{self, Display};
 
 // use crate::gc::{Gc, GcHandle, Manager};
 use crate::{
@@ -201,6 +201,9 @@ impl Chunk {
                 OpCode::SetProperty => {
                     constant!("set property")
                 }
+                OpCode::Method => {
+                    constant!("method")
+                }
             }
         }
         Ok(())
@@ -240,6 +243,7 @@ pub enum OpCode {
     CloseUpvalue,
     Return,
     Class,
+    Method,
 }
 
 impl TryFrom<u8> for OpCode {
@@ -279,6 +283,7 @@ impl TryFrom<u8> for OpCode {
             29 => Ok(Self::CloseUpvalue),
             30 => Ok(Self::Return),
             31 => Ok(Self::Class),
+            32 => Ok(Self::Method),
             _ => Err(()),
         }
     }
@@ -317,6 +322,22 @@ impl Value {
 
     pub fn try_as_instance(&self) -> Result<GcHandle<Instance>, ()> {
         if let Self::Instance(v) = self {
+            Ok(*v)
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn try_as_class(&self) -> Result<GcHandle<Class>, ()> {
+        if let Self::Class(v) = self {
+            Ok(*v)
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn try_as_closure(&self) -> Result<GcHandle<Closure>, ()> {
+        if let Self::Closure(v) = self {
             Ok(*v)
         } else {
             Err(())
@@ -453,12 +474,14 @@ impl ObjUpvalue {
 #[derive(Debug)]
 pub struct Class {
     pub name: GcHandle<String>,
+    pub methods: HashMap<GcHandle<String>, Value>,
 }
 
 impl Class {
     pub fn new(name: GcHandle<String>) -> Self {
         Self {
             name,
+            methods: HashMap::new(),
         }
     }
 }
@@ -466,15 +489,26 @@ impl Class {
 #[derive(Debug)]
 pub struct Instance {
     pub class: GcHandle<Class>,
-    pub fields: HashMap<String, Value>,
+    pub fields: HashMap<GcHandle<String>, Value>,
 }
 
 impl Instance {
     pub fn new(class: GcHandle<Class>) -> Self {
         Self {
             class,
-            fields: HashMap::new()
+            fields: HashMap::new(),
         }
     }
 }
 
+#[derive(Debug)]
+pub struct BoundMethod {
+    pub receiver: Value,
+    pub method: GcHandle<Closure>,
+}
+
+impl BoundMethod {
+    pub fn new(receiver: Value, method: GcHandle<Closure>) -> Self {
+        Self { receiver, method }
+    }
+}

@@ -33,6 +33,7 @@ pub enum CompileError {
     TopLevelReturn,
     TooManyUpvalues,
     ExpectedClassName,
+    ExpectedMethodName,
     ExpectedProperty,
 }
 
@@ -67,6 +68,7 @@ impl Display for CompileError {
             Self::TooManyUpvalues => write!(f, "can't have more than 256 closure variables"),
             Self::ExpectedClassName => write!(f, "expected class name"),
             Self::ExpectedProperty => write!(f, "expected property name after '.'"),
+            Self::ExpectedMethodName => write!(f, "expected method name"),
         }
     }
 }

@@ -262,7 +262,10 @@ impl<'a, 't> Compiler<'a, 't> {
             self.current_chunk().write_nowhere(OpCode::Nil as u8);
             self.current_chunk().write_nowhere(OpCode::Return as u8);
 
-            println!("---{}---", FunctionDisplay(&self.frame.function, self.objects));
+            println!(
+                "---{}---",
+                FunctionDisplay(&self.frame.function, self.objects)
+            );
             let _ = self.frame.function.chunk.disassemble(self.objects);
 
             let ret = mem::replace(
@@ -736,18 +739,44 @@ impl<'a, 't> Compiler<'a, 't> {
         }
     }
 
+    fn method(&mut self) {
+        if let Some(t) = self.consume(TokenKind::Identifier, CompileError::ExpectedMethodName) {
+            let coords = t.coords();
+            let name = t.span();
+            let constant = self.identifier_constant(name.into());
+
+            self.function(FunctionKind::Function, coords, name);
+            // self.emit_op(OpCode::Method, coords);
+            self.emit_byte(constant, coords);
+        }
+    }
+
     fn class_declaration(&mut self) {
-        if let Some(identifier) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
-            let index = self.identifier_constant(identifier.span().into());
-            let coords = identifier.coords();
-            self.declare_variable(identifier);
+        if let Some(t) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
+            let tclone = t.clone();
+            let index = self.identifier_constant(tclone.span().into());
+            let coords = t.coords();
+            self.declare_variable(tclone);
 
             self.emit_op(OpCode::Class, coords);
             self.emit_byte(index, coords);
             self.define_variable(index, coords);
 
+            self.named_variable(&t, false);
+
             self.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
-            self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock);
+
+            while !self
+                .peek_token()
+                .filter(|t| t.kind() == TokenKind::RightBrace)
+                .is_some()
+            {
+                self.method();
+            }
+
+            if let Some(t) = self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock) {
+                self.emit_op(OpCode::Pop, t.coords());
+            }
         }
     }
 
@@ -1054,7 +1083,9 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn dot(&mut self, token: &AtCoords<Token<'a>>, can_assign: bool) {
-        if let Some(identifier) = self.consume(TokenKind::Identifier, CompileError::ExpectedProperty) {
+        if let Some(identifier) =
+            self.consume(TokenKind::Identifier, CompileError::ExpectedProperty)
+        {
             let coords = identifier.coords();
             let name = self.identifier_constant(identifier.span().into());
             if can_assign && self.next_token_if_eq(TokenKind::Equal).is_some() {
@@ -1063,7 +1094,7 @@ impl<'a, 't> Compiler<'a, 't> {
                 self.emit_byte(name, coords);
             } else {
                 self.emit_op(OpCode::GetProperty, coords);
-                self.emit_byte( name, coords);
+                self.emit_byte(name, coords);
             }
         }
     }
