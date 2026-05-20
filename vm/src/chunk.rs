@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt::{self, Display};
+use std::fmt::{self, Debug, Display};
 
 // use crate::gc::{Gc, GcHandle, Manager};
 use crate::{
@@ -76,7 +76,7 @@ impl Chunk {
                 let index = *bytes.next().unwrap().1 as usize;
                 let arg = &self.constants[index];
                 print!("{} {} ", $op_name, index);
-                print!("{}", ValueDisplay(arg, &objects));
+                print!("{:?}", ValueDisplay(arg, &objects));
                 println!("");
             }};
         }
@@ -93,7 +93,7 @@ impl Chunk {
                 let arg_count = *bytes.next().unwrap().1 as u8;
                 print!("{} ({} args) {} ", $op_name, arg_count, constant);
                 let constant = &self.constants[constant];
-                println!("{}", ValueDisplay(constant, &objects));
+                println!("{:?}", ValueDisplay(constant, &objects));
             }};
         }
         while let Some((addr, &b)) = bytes.next() {
@@ -179,7 +179,7 @@ impl Chunk {
                     let index = *bytes.next().unwrap().1 as usize;
                     let arg = &self.constants[index];
                     print!("closure {} ", index);
-                    println!("{}", ValueDisplay(arg, &objects));
+                    println!("{:?}", ValueDisplay(arg, &objects));
                     let function = arg.try_as_function().unwrap();
                     let function = &objects[function];
                     for _ in 0..function.upvalue_count {
@@ -362,6 +362,7 @@ impl Value {
 
 pub struct ValueDisplay<'a>(pub &'a Value, pub &'a Heap);
 
+// TODO: why did we need this??
 pub struct FunctionDisplay<'a>(pub &'a Function, pub &'a Heap);
 
 impl<'a> Display for FunctionDisplay<'a> {
@@ -415,6 +416,47 @@ impl<'a> Display for ValueDisplay<'a> {
                 let method = o[v].method;
                 let function = o[method].function;
                 write!(f, "{}", FunctionDisplay(&o[function], o))
+            }
+        }
+    }
+}
+
+impl<'a> Debug for ValueDisplay<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> { 
+        let Self(value, heap) = self;
+        match value {
+            Value::Bool(b) => write!(f, "bool({b})"),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(n) => write!(f, "number({n})"),
+            Value::String(h) => write!(f, "string(\"{}\")", &heap[*h]),
+            Value::Function(h) => {
+                let func = &heap[*h];
+                write!(f, "function({})", FunctionDisplay(func, heap))
+            }
+            Value::NativeFunction { .. } => {
+                write!(f, "function(<native fn>)")
+            }
+            Value::Closure(h) => {
+                let closure = &heap[*h];
+                let func = &heap[closure.function];
+                write!(f, "closure({})", FunctionDisplay(func, heap))
+            }
+            Value::Class(h) => {
+                let class = &heap[*h];
+                let name = &heap[class.name];
+                write!(f, "class(\"{name}\")")
+            }
+            Value::Instance(h) => {
+                let instance = &heap[*h];
+                let class = &heap[instance.class];
+                let name = &heap[class.name];
+                write!(f, "instance(of: \"{name}\")")
+            }
+            Value::Method(h) => {
+                let bound = &heap[*h];
+                let closure = &heap[bound.method];
+                let func = &heap[closure.function];
+                write!(f, "method({})", FunctionDisplay(func, heap))
             }
         }
     }
