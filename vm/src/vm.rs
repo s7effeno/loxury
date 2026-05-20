@@ -35,16 +35,20 @@ pub struct Vm {
     globals: HashMap<GcHandle<String>, Value>,
     objects: Heap,
     open_upvalues: Vec<GcHandle<ObjUpvalue>>,
+    init_string: GcHandle<String>,
 }
 
 impl Vm {
     pub fn new() -> Self {
+        let mut objects = Heap::default();
+        let init_string = objects.alloc("init".into());
         let mut ret = Self {
             frames: ArrayVec::new(),
             stack: ArrayVec::new(),
             globals: HashMap::new(),
-            objects: Heap::default(),
+            objects: objects,
             open_upvalues: Vec::new(),
+            init_string,
         };
         ret.define_native("clock", 0, |_| {
             Value::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64)
@@ -65,6 +69,7 @@ impl Vm {
         closure: GcHandle<Closure>,
         arg_count: u8,
     ) -> Result<(), AtCoords<RunError>> {
+        // TODO: possibly pass base instead of arg_count?
         let c = &self.objects[closure];
         let arity = self.objects[c.function].arity;
         if arity != arg_count {
@@ -93,15 +98,37 @@ impl Vm {
             }
             Value::Closure(c) => self.call_closure(c, arg_count),
             Value::Class(c) => {
-                // ignore arguments
-                for _ in 0..arg_count + 1 {
-                    self.stack.pop();
+                let instance = self.alloc(Instance::new(c));
+                let base = self.stack.len() - 1 - arg_count as usize;
+                self.stack[base] = Value::Instance(instance);
+                let class = &self.objects[c];
+                if let Some(initializer) = class.methods.get(&self.init_string) {
+                    self.call_closure(initializer.try_as_closure().unwrap(), arg_count)
+                } else if arg_count != 0 {
+                    self.error(RunError::WrongArity(0, arg_count))
+                } else {
+                    Ok(())
                 }
-                let instance = self.objects.alloc(Instance::new(c));
-                self.stack.push(Value::Instance(instance));
-                Ok(())
+            }
+            Value::Method(m) => {
+                let i = self.objects[m].receiver;
+                let c = self.objects[m].method;
+                let base = self.stack.len() - 1 - arg_count as usize;
+                self.stack[base] = i;
+                self.call_closure(c, arg_count)
             }
             _ => self.error(RunError::NotCallable),
+        }
+    }
+
+    fn invoke_from_class(&mut self, class: GcHandle<Class>, name: GcHandle<String>, arg_count: u8) -> Result<(), AtCoords<RunError>> {
+        let class = &self.objects[class];
+        match class.methods.get(&name) {
+            Some(m) => Ok(self.call_closure(m.try_as_closure().unwrap(), arg_count)?),
+            None => {
+                let name = &self.objects[name];
+                self.error(RunError::UndefinedProperty(name.into()))
+            }
         }
     }
 
@@ -116,9 +143,9 @@ impl Vm {
                 self.stack[self.stack.len() - 1],
                 method.try_as_closure().unwrap(),
             );
-            self.objects.alloc(bound);
+            let bound = self.alloc(bound);
             self.stack.pop();
-            self.stack.push()
+            Ok(self.stack.push(Value::Method(bound)))
         } else {
             let name = &self.objects[name];
             self.error(RunError::UndefinedProperty(name.into()))
@@ -412,12 +439,14 @@ impl Vm {
                 }
                 OpCode::Class => {
                     let name = read_constant!().try_as_string().unwrap();
-                    let class = self.objects.alloc(Class::new(name));
+                    let class = self.alloc(Class::new(name));
                     self.stack.push(Value::Class(class));
                 }
                 OpCode::GetProperty => {
-                    let Ok(instance) = self.stack.last().unwrap().try_as_instance() else {
-                        return self.error(RunError::NotAnInstance);
+                    let value = self.stack.last().unwrap();
+                    let Ok(instance) = value.try_as_instance() else {
+                        let v = ValueDisplay(&value, &self.objects).to_string();
+                        return self.error(RunError::NotAnInstance(v));
                     };
                     let instance = &self.objects[instance];
                     let name = read_constant!().try_as_string().unwrap();
@@ -425,26 +454,45 @@ impl Vm {
                         self.stack.pop();
                         self.stack.push(value.clone());
                     } else {
-                        self.bind_method(instance.class, name)
+                        self.bind_method(instance.class, name)?
                     }
                 }
                 OpCode::SetProperty => {
                     let i = self.stack.len() - 2;
-                    let Ok(instance) = self.stack[i].try_as_instance() else {
-                        return self.error(RunError::NotAnInstance);
+                    let value = self.stack[i];
+                    let Ok(instance) = value.try_as_instance() else {
+                        let v = ValueDisplay(&value, &self.objects).to_string();
+                        return self.error(RunError::NotAnInstance(v));
                     };
                     let name = read_constant!().try_as_string().unwrap();
                     let instance = &mut self.objects[instance];
                     let value = self.stack.pop().unwrap();
                     instance.fields.insert(name, value);
+                    // removing the instance
+                    self.stack.pop();
                     self.stack.push(value);
                 }
                 OpCode::Method => {
                     let name = read_constant!().try_as_string().unwrap();
                     self.define_method(name);
-                } // OpCode::Method => {
-
-                  // }
+                }
+                OpCode::Invoke => {
+                    let method = read_constant!().try_as_string().unwrap();
+                    let arg_count = read_byte!() as usize;
+                    let base = self.stack.len() - 1 - arg_count;
+                    let receiver = &self.stack[base];
+                    let Value::Instance(instance) = receiver else {
+                        let v = ValueDisplay(&receiver, &self.objects).to_string();
+                        return self.error(RunError::NotAnInstance(v))
+                    };
+                    let instance = &self.objects[*instance];
+                    if let Some(m) = instance.fields.get(&method) {
+                        self.stack[base] = *m;
+                        self.call_value(arg_count as u8)
+                    } else {
+                        self.invoke_from_class(instance.class, method, arg_count as u8)
+                    }?;
+                }
             }
         }
     }
@@ -524,6 +572,7 @@ impl Vm {
             self.objects.mark(*k);
             v.trace(&self.objects);
         }
+        self.objects.mark(self.init_string);
 
         // don't care about compiler's temporary object, only collect at runtime
     }

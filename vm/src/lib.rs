@@ -23,7 +23,7 @@ pub enum CompileError {
     UnopenedBlock,
     TooManyLocals,
     VariableRedeclaration(String),
-    SelfReferencialVariableInitializer(String),
+    SelfReferentialVariableInitializer(String),
     ExpectedControlLeftParen,
     ExpectedControlRightParen,
     UnclosedArgumentsList,
@@ -35,6 +35,9 @@ pub enum CompileError {
     ExpectedClassName,
     ExpectedMethodName,
     ExpectedProperty,
+    ThisOutsideClass,
+    TooMuchClassNesting,
+    InitializerReturn,
 }
 
 impl Display for CompileError {
@@ -53,7 +56,7 @@ impl Display for CompileError {
             Self::VariableRedeclaration(v) => {
                 write!(f, "variable '{}' already declared in this scope", v)
             }
-            Self::SelfReferencialVariableInitializer(v) => {
+            Self::SelfReferentialVariableInitializer(v) => {
                 write!(f, "can't read local variable '{}' in its own initalizer", v)
             }
             Self::ExpectedControlLeftParen => {
@@ -69,6 +72,9 @@ impl Display for CompileError {
             Self::ExpectedClassName => write!(f, "expected class name"),
             Self::ExpectedProperty => write!(f, "expected property name after '.'"),
             Self::ExpectedMethodName => write!(f, "expected method name"),
+            Self::ThisOutsideClass => write!(f, "can't use 'this' outside of class"),
+            Self::TooMuchClassNesting => write!(f, "max depth reached for class nesting"),
+            Self::InitializerReturn => write!(f, "can't return value from initializer"),
         }
     }
 }
@@ -83,7 +89,7 @@ pub enum RunError {
     UndefinedVariable(String),
     UndefinedProperty(String),
     NotCallable,
-    NotAnInstance,
+    NotAnInstance(String),
     WrongArity(u8, u8),
 }
 
@@ -93,12 +99,12 @@ impl Display for RunError {
             Self::ExpectedNumber => write!(f, "operand must be a number"),
             Self::ExpectedNumbers => write!(f, "operands must be numbers"),
             Self::ExpectedNumbersOrStrings => write!(f, "operands must be numbers or strings"),
-            Self::UndefinedVariable(v) => write!(f, "variable {v} is not defined"),
-            Self::UndefinedProperty(v) => write!(f, "property {v} is not defined"),
-            Self::NotCallable => write!(f, "can only call functions and classes"),
-            Self::NotAnInstance => write!(f, "can only have properties on instances"),
+            Self::UndefinedVariable(v) => write!(f, "variable '{v}' is not defined"),
+            Self::UndefinedProperty(v) => write!(f, "property '{v}' is not defined"),
+            Self::NotCallable => write!(f, "only functions and classes are callable"),
+            Self::NotAnInstance(v) => write!(f, "'{v}' can't have properties: not instance"),
             Self::WrongArity(expected, actual) => {
-                write!(f, "expected {} arguments, got {}", expected, actual)
+                write!(f, "expected {expected} arguments, got {actual}")
             }
         }
     }
@@ -106,9 +112,13 @@ impl Display for RunError {
 
 impl Error for RunError {}
 
+#[derive(Debug)]
 struct ArrayVec<T, const N: usize> {
     values: [MaybeUninit<T>; N],
     len: usize,
+}
+
+impl<T: Debug, const N: usize> ArrayVec<T, N> {
 }
 
 impl<T, const N: usize> ArrayVec<T, N> {

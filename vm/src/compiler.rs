@@ -2,7 +2,7 @@
 // TODO: maybe bind function name to FunctionKind::Function
 
 use crate::chunk::{Chunk, Function, FunctionDisplay, FunctionKind, OpCode, Upvalue, Value};
-use crate::gc::{Allocate, Heap};
+use crate::gc::{Allocate, GcHandle, Heap};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::{ArrayVec, CompileError};
@@ -25,6 +25,7 @@ enum Precedence {
     Primary,
 }
 
+#[derive(Debug)]
 struct Locals<'a> {
     // Some if initialized, None if uninitialized, to implement self-referential initialization
     // error
@@ -60,7 +61,7 @@ impl<'a> Locals<'a> {
         {
             Some((p, local)) => {
                 if local.depth.is_none() {
-                    Err(CompileError::SelfReferencialVariableInitializer(
+                    Err(CompileError::SelfReferentialVariableInitializer(
                         name.into(),
                     ))
                 } else {
@@ -72,9 +73,7 @@ impl<'a> Locals<'a> {
     }
 
     fn mark_initialized(&mut self) {
-        if self.scope_depth > 0 {
-            self.locals.last_mut().unwrap().depth = Some(self.scope_depth);
-        }
+        self.locals.last_mut().unwrap().depth = Some(self.scope_depth);
     }
 
     fn begin_scope(&mut self) {
@@ -162,6 +161,7 @@ pub struct Compiler<'a, 't> {
     objects: &'a mut Heap,
     frame: CompilationFrame<'a>,
     errors: Errors,
+    classes: u32,
 }
 
 pub struct CompilationFrame<'a> {
@@ -174,7 +174,12 @@ pub struct CompilationFrame<'a> {
 impl CompilationFrame<'_> {
     fn new(function_kind: FunctionKind) -> Self {
         let mut locals = Locals::new();
-        let _ = locals.try_push("");
+        let _ = locals.try_push(if let FunctionKind::Function = function_kind {
+            ""
+        } else {
+            "this"
+        });
+        locals.mark_initialized();
         Self {
             function: Function::new(function_kind),
             upvalues: ArrayVec::new(),
@@ -251,6 +256,7 @@ impl<'a, 't> Compiler<'a, 't> {
             objects,
             frame: CompilationFrame::new(function_kind),
             errors: Errors::new(),
+            classes: 0,
         }
     }
 
@@ -519,9 +525,14 @@ impl<'a, 't> Compiler<'a, 't> {
         }
 
         if self.next_token_if_eq(TokenKind::Semicolon).is_some() {
-            self.emit_op(OpCode::Nil, coords);
+            self.emit_op(OpCode::GetLocal, coords);
+            self.emit_byte(0, coords);
             self.emit_op(OpCode::Return, coords);
         } else {
+            if let FunctionKind::Initializer = self.frame.function.kind {
+                self.errors.report(&coords.locate(CompileError::InitializerReturn).into());
+            }
+
             self.expression();
             self.consume(TokenKind::Semicolon, CompileError::UnclosedStatement);
             self.emit_op(OpCode::Return, coords);
@@ -716,7 +727,13 @@ impl<'a, 't> Compiler<'a, 't> {
         self.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
         self.block();
 
-        self.current_chunk().write_nowhere(OpCode::Nil as u8);
+        // FIXME: why write_nowhere? ideally return latest location
+        if let FunctionKind::Initializer = kind {
+            self.current_chunk().write_nowhere(OpCode::GetLocal as u8);
+            self.current_chunk().write_nowhere(0);
+        } else {
+            self.current_chunk().write_nowhere(OpCode::Nil as u8);
+        }
         self.current_chunk().write_nowhere(OpCode::Return as u8);
 
         let (mut function, upvalues) = self.unnest();
@@ -745,8 +762,8 @@ impl<'a, 't> Compiler<'a, 't> {
             let name = t.span();
             let constant = self.identifier_constant(name.into());
 
-            self.function(FunctionKind::Function, coords, name);
-            // self.emit_op(OpCode::Method, coords);
+            self.function(if name == "init" { FunctionKind::Initializer } else { FunctionKind::Method }, coords, name);
+            self.emit_op(OpCode::Method, coords);
             self.emit_byte(constant, coords);
         }
     }
@@ -761,6 +778,12 @@ impl<'a, 't> Compiler<'a, 't> {
             self.emit_op(OpCode::Class, coords);
             self.emit_byte(index, coords);
             self.define_variable(index, coords);
+
+            if self.classes == 32 {
+                self.errors.report(&coords.locate(CompileError::TooMuchClassNesting).into())
+            } else {
+                self.classes += 1;
+            }
 
             self.named_variable(&t, false);
 
@@ -777,6 +800,8 @@ impl<'a, 't> Compiler<'a, 't> {
             if let Some(t) = self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock) {
                 self.emit_op(OpCode::Pop, t.coords());
             }
+
+            self.classes -= 1;
         }
     }
 
@@ -878,6 +903,10 @@ impl<'a, 't> Compiler<'a, 't> {
             TokenKind::True => {
                 self.next_token();
                 self.literal(token)
+            }
+            TokenKind::This => {
+                self.next_token();
+                self.this(token)
             }
             TokenKind::Nil => {
                 self.next_token();
@@ -984,7 +1013,9 @@ impl<'a, 't> Compiler<'a, 't> {
 
     fn resolve_local(&mut self, name: &AtCoords<Token<'_>>) -> Option<u8> {
         match self.frame.resolve_local(name) {
-            Ok(local) => local,
+            Ok(local) => {
+                local
+            }
             Err(e) => {
                 self.errors.sync(&e);
                 Some(0)
@@ -1032,7 +1063,14 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
-        self.named_variable(token, can_assign)
+        self.named_variable(token, can_assign);
+    }
+
+    fn this(&mut self, token: &AtCoords<Token<'_>>) {
+        if self.classes == 0 {
+            self.errors.report(&token.co_locate(CompileError::ThisOutsideClass))
+        }
+        self.variable(token, false);
     }
 
     fn grouping<'b>(&'b mut self, _token: &AtCoords<Token<'a>>) {
@@ -1092,6 +1130,12 @@ impl<'a, 't> Compiler<'a, 't> {
                 self.expression();
                 self.emit_op(OpCode::SetProperty, coords);
                 self.emit_byte(name, coords);
+            } else if let Some(t) = self.next_token_if_eq(TokenKind::LeftParen) {
+                let coords_paren = t.coords();
+                let arg_count = self.argument_list();
+                self.emit_op(OpCode::Invoke, coords_paren);
+                self.emit_byte(name, coords);
+                self.emit_byte(arg_count as u8, coords_paren);
             } else {
                 self.emit_op(OpCode::GetProperty, coords);
                 self.emit_byte(name, coords);

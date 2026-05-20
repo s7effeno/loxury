@@ -87,6 +87,15 @@ impl Chunk {
                 println!("{} {} -> {}", $op_name, offset, destination)
             }};
         }
+        macro_rules! invoke {
+            ($op_name:expr) => {{
+                let constant = *bytes.next().unwrap().1 as usize;
+                let arg_count = *bytes.next().unwrap().1 as u8;
+                print!("{} ({} args) {} ", $op_name, arg_count, constant);
+                let constant = &self.constants[constant];
+                println!("{}", ValueDisplay(constant, &objects));
+            }};
+        }
         while let Some((addr, &b)) = bytes.next() {
             print!("{addr:04} ");
             match b.try_into().unwrap() {
@@ -204,6 +213,9 @@ impl Chunk {
                 OpCode::Method => {
                     constant!("method")
                 }
+                OpCode::Invoke => {
+                    invoke!("invoke")
+                }
             }
         }
         Ok(())
@@ -239,6 +251,7 @@ pub enum OpCode {
     JumpIfFalse,
     Loop,
     Call,
+    Invoke,
     Closure,
     CloseUpvalue,
     Return,
@@ -279,11 +292,12 @@ impl TryFrom<u8> for OpCode {
             25 => Ok(Self::JumpIfFalse),
             26 => Ok(Self::Loop),
             27 => Ok(Self::Call),
-            28 => Ok(Self::Closure),
-            29 => Ok(Self::CloseUpvalue),
-            30 => Ok(Self::Return),
-            31 => Ok(Self::Class),
-            32 => Ok(Self::Method),
+            28 => Ok(Self::Invoke),
+            29 => Ok(Self::Closure),
+            30 => Ok(Self::CloseUpvalue),
+            31 => Ok(Self::Return),
+            32 => Ok(Self::Class),
+            33 => Ok(Self::Method),
             _ => Err(()),
         }
     }
@@ -301,6 +315,7 @@ pub enum Value {
     Closure(GcHandle<Closure>),
     Class(GcHandle<Class>),
     Instance(GcHandle<Instance>),
+    Method(GcHandle<BoundMethod>),
 }
 
 impl Value {
@@ -396,6 +411,11 @@ impl<'a> Display for ValueDisplay<'a> {
                 let name = &o[class.name];
                 write!(f, "{name} instance")
             }
+            Value::Method(v) => {
+                let method = o[v].method;
+                let function = o[method].function;
+                write!(f, "{}", FunctionDisplay(&o[function], o))
+            }
         }
     }
 }
@@ -413,7 +433,9 @@ pub struct Function {
 #[derive(Debug, Clone, Copy)]
 pub enum FunctionKind {
     Function,
+    Initializer,
     Script,
+    Method,
 }
 
 impl Function {
