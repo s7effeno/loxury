@@ -189,7 +189,7 @@ impl Vm {
 
     fn is_falsey(value: Value) -> bool {
         match value {
-            Value::Nil => true,
+           Value::Nil => true,
             Value::Bool(b) => !b,
             _ => false,
         }
@@ -492,6 +492,31 @@ impl Vm {
                     } else {
                         self.invoke_from_class(instance.class, method, arg_count as u8)
                     }?;
+                }
+                OpCode::Inherit => {
+                    let top = self.stack.len() - 1;
+                    let Ok(superclass) = self.stack[top - 1].try_as_class() else {
+                        return self.error(RunError::UninheritableValue);
+                    };
+                    let superclass = &self.objects[superclass];
+                    let it = superclass.methods.clone();
+                    let subclass = &self.stack[top].try_as_class().unwrap();
+                    let subclass = &mut self.objects[*subclass];
+                    subclass.methods.extend(it);
+
+                    self.stack.pop();
+                }
+                OpCode::GetSuper => {
+                    let name = read_constant!().try_as_string().unwrap();
+                    let superclass = self.stack.pop().unwrap().try_as_class().unwrap();
+                    self.bind_method(superclass, name)?
+                }
+                OpCode::SuperInvoke => {
+                    let method = read_constant!().try_as_string().unwrap();
+                    let arg_count = read_byte!();
+                    let superclass = self.stack.pop().unwrap().try_as_class().unwrap();
+                    self.invoke_from_class(superclass, method, arg_count)?;
+
                 }
             }
         }

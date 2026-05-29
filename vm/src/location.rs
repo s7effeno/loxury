@@ -40,8 +40,8 @@ impl<T> AtCoords<T> {
         self.coords
     }
 
-    pub fn co_locate<A>(&self, value: A) -> AtCoordsOrEof<A> {
-        AtCoordsOrEof::AtCoords(AtCoords::at(self.coords.0, self.coords.1, value))
+    pub fn co_locate<A>(&self, value: A) -> AtCoords<A> {
+        AtCoords::at(self.coords.0, self.coords.1, value)
     }
 }
 

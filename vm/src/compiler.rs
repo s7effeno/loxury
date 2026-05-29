@@ -2,7 +2,7 @@
 // TODO: maybe bind function name to FunctionKind::Function
 
 use crate::chunk::{Chunk, Function, FunctionDisplay, FunctionKind, OpCode, Upvalue, Value};
-use crate::gc::{Allocate, GcHandle, Heap};
+use crate::gc::{Allocate, Heap};
 use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::{ArrayVec, CompileError};
@@ -156,12 +156,53 @@ impl Errors {
     }
 }
 
+struct ClassCompiler {
+    depth: u32,
+    superclasses: u32,
+}
+
+impl ClassCompiler {
+    fn new() -> Self {
+        Self {
+            depth: 0,
+            superclasses: 0
+        }
+    }
+
+    fn try_nest(&mut self) -> Result<(), ()> {
+        if self.depth < u32::BITS {
+            self.depth += 1;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn try_unnest(&mut self) -> Result<(), ()> {
+        if self.depth == 0 {
+            Err(())
+        } else {
+            self.superclasses &= !(1 << (self.depth - 1));
+            self.depth -= 1;
+            Ok(())
+        }
+    }
+
+    fn mark_has_superclass(&mut self) {
+        self.superclasses |= 1 << (self.depth - 1)
+    }
+
+    fn has_superclass(&self) -> bool {
+        self.superclasses & (1 << (self.depth - 1)) != 0
+    }
+}
+
 pub struct Compiler<'a, 't> {
     lexer: &'a mut Peekable<Lexer<'t>>,
     objects: &'a mut Heap,
     frame: CompilationFrame<'a>,
     errors: Errors,
-    classes: u32,
+    class_compiler : ClassCompiler,
 }
 
 pub struct CompilationFrame<'a> {
@@ -241,7 +282,7 @@ impl CompilationFrame<'_> {
     ) -> Result<Option<u8>, AtCoordsOrEof<CompileError>> {
         self.locals
             .resolve(name.span())
-            .map_err(|e| name.co_locate(e))
+            .map_err(|e| name.co_locate(e).into())
     }
 }
 
@@ -256,7 +297,7 @@ impl<'a, 't> Compiler<'a, 't> {
             objects,
             frame: CompilationFrame::new(function_kind),
             errors: Errors::new(),
-            classes: 0,
+            class_compiler: ClassCompiler::new()
         }
     }
 
@@ -355,7 +396,7 @@ impl<'a, 't> Compiler<'a, 't> {
                 self.lexer.next();
                 Some(ret)
             } else {
-                self.errors.sync(&peek.co_locate(error));
+                self.errors.sync(&peek.co_locate(error).into());
                 None
             }
         } else {
@@ -565,7 +606,7 @@ impl<'a, 't> Compiler<'a, 't> {
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
         if let Err(()) = self.frame.locals.try_push(name.span()) {
             self.errors
-                .sync(&name.co_locate(CompileError::TooManyLocals));
+                .sync(&name.co_locate(CompileError::TooManyLocals).into());
         }
     }
 
@@ -579,7 +620,7 @@ impl<'a, 't> Compiler<'a, 't> {
             self.add_local(name);
         } else {
             self.errors
-                .sync(&name.co_locate(CompileError::VariableRedeclaration(span.clone())))
+                .sync(&name.co_locate(CompileError::VariableRedeclaration(span.clone())).into())
         }
     }
 
@@ -768,24 +809,43 @@ impl<'a, 't> Compiler<'a, 't> {
         }
     }
 
+
+
     fn class_declaration(&mut self) {
-        if let Some(t) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
-            let tclone = t.clone();
-            let index = self.identifier_constant(tclone.span().into());
-            let coords = t.coords();
-            self.declare_variable(tclone);
+        if let Some(class) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
+            let class_clone = class.clone();
+            let index = self.identifier_constant(class_clone.span().into());
+            let coords = class.coords();
+            self.declare_variable(class_clone);
 
             self.emit_op(OpCode::Class, coords);
             self.emit_byte(index, coords);
             self.define_variable(index, coords);
 
-            if self.classes == 32 {
+            if let Err(()) = self.class_compiler.try_nest() {
                 self.errors.report(&coords.locate(CompileError::TooMuchClassNesting).into())
-            } else {
-                self.classes += 1;
             }
 
-            self.named_variable(&t, false);
+            if self.next_token_if_eq(TokenKind::Less).is_some() {
+                if let Some(superclass) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
+                    if class.span() == superclass.span() {
+                        self.errors.report(&superclass.co_locate(CompileError::SelfInheritance).into());
+                    }
+
+                    self.variable(&superclass, false);
+
+                    self.begin_scope();
+                    self.add_local(superclass.co_locate(Token::new(TokenKind::Identifier, "super")));
+                    self.define_variable(0, superclass.coords());
+
+                    self.variable(&class, false);
+                    self.emit_op(OpCode::Inherit, superclass.coords());
+                    self.class_compiler.mark_has_superclass();
+                }
+
+            }
+
+            self.named_variable(&class, false);
 
             self.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
 
@@ -799,9 +859,13 @@ impl<'a, 't> Compiler<'a, 't> {
 
             if let Some(t) = self.consume(TokenKind::RightBrace, CompileError::UnclosedBlock) {
                 self.emit_op(OpCode::Pop, t.coords());
+                if self.class_compiler.has_superclass() {
+                    self.end_scope(t.coords());
+                }
             }
 
-            self.classes -= 1;
+
+            let _ = self.class_compiler.try_unnest();
         }
     }
 
@@ -923,6 +987,10 @@ impl<'a, 't> Compiler<'a, 't> {
             TokenKind::Identifier => {
                 self.next_token();
                 self.variable(token, can_assign)
+            }
+            TokenKind::Super => {
+                self.next_token();
+                self.super_(token)
             }
             _ => return None,
         };
@@ -1062,13 +1130,42 @@ impl<'a, 't> Compiler<'a, 't> {
         }
     }
 
+    // FIXME: this function is useless, remove
     fn variable(&mut self, token: &AtCoords<Token<'_>>, can_assign: bool) {
         self.named_variable(token, can_assign);
     }
 
+    fn super_(&mut self, token: &AtCoords<Token<'_>>) {
+        if self.class_compiler.depth == 0 {
+            self.errors.report(&token.co_locate(CompileError::SuperOutsideClass).into());
+        } else if !self.class_compiler.has_superclass() {
+            self.errors.report(&token.co_locate(CompileError::SuperWithoutClass).into());
+        }
+
+        self.consume(TokenKind::Dot, CompileError::ExpectedDotAfterSuper);
+        if let Some(name) = self.consume(TokenKind::Identifier, CompileError::ExpectedMethodName) {
+            let constant = self.identifier_constant(name.span().into());
+
+            self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "this")).into(), false);
+            if let Some(paren) = self.next_token_if_eq(TokenKind::LeftParen) {
+                let paren_coords = paren.coords();
+                let name_coords = name.coords();
+                let arg_count = self.argument_list();
+                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")).into(), false);
+                self.emit_op(OpCode::SuperInvoke, paren_coords);
+                self.emit_byte(constant, name_coords);
+                self.emit_byte(arg_count, paren_coords);
+            } else {
+                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")).into(), false);
+                self.emit_op(OpCode::GetSuper, name.coords());
+                self.emit_byte(constant, name.coords());
+            }
+        }
+    }
+
     fn this(&mut self, token: &AtCoords<Token<'_>>) {
-        if self.classes == 0 {
-            self.errors.report(&token.co_locate(CompileError::ThisOutsideClass))
+        if self.class_compiler.depth == 0 {
+            self.errors.report(&token.co_locate(CompileError::ThisOutsideClass).into())
         }
         self.variable(token, false);
     }

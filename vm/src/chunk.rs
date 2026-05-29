@@ -148,22 +148,22 @@ impl Chunk {
                     simple!("pop");
                 }
                 OpCode::DefineGlobal => {
-                    constant!("define global");
+                    constant!("define_global");
                 }
                 OpCode::GetGlobal => {
-                    constant!("get global");
+                    constant!("get_global");
                 }
                 OpCode::SetGlobal => {
-                    constant!("set global");
+                    constant!("set_global");
                 }
                 OpCode::GetLocal => {
-                    byte!("get local");
+                    byte!("get_local");
                 }
                 OpCode::SetLocal => {
-                    byte!("set local");
+                    byte!("set_local");
                 }
                 OpCode::JumpIfFalse => {
-                    jump!("jump if false", addr, +);
+                    jump!("jump_if_false", addr, +);
                 }
                 OpCode::Jump => {
                     jump!("jump", addr, +);
@@ -175,7 +175,6 @@ impl Chunk {
                     byte!("call")
                 }
                 OpCode::Closure => {
-                    // constant!("closure");
                     let index = *bytes.next().unwrap().1 as usize;
                     let arg = &self.constants[index];
                     print!("closure {} ", index);
@@ -193,28 +192,37 @@ impl Chunk {
                     }
                 }
                 OpCode::GetUpvalue => {
-                    byte!("get upvalue")
+                    byte!("get_upvalue")
                 }
                 OpCode::SetUpvalue => {
-                    byte!("set upvalue")
+                    byte!("set_upvalue")
                 }
                 OpCode::CloseUpvalue => {
-                    simple!("close upvalue")
+                    simple!("close_upvalue")
                 }
                 OpCode::Class => {
                     constant!("class");
                 }
                 OpCode::GetProperty => {
-                    constant!("get property")
+                    constant!("get_property")
                 }
                 OpCode::SetProperty => {
-                    constant!("set property")
+                    constant!("set_property")
                 }
                 OpCode::Method => {
                     constant!("method")
                 }
                 OpCode::Invoke => {
                     invoke!("invoke")
+                }
+                OpCode::Inherit => {
+                    simple!("inherit")
+                }
+                OpCode::GetSuper => {
+                    constant!("get_super")
+                }
+                OpCode::SuperInvoke => {
+                    invoke!("super_invoke")
                 }
             }
         }
@@ -236,6 +244,7 @@ pub enum OpCode {
     GetUpvalue,
     SetUpvalue,
     GetProperty,
+    GetSuper,
     SetProperty,
     Equal,
     Greater,
@@ -252,10 +261,12 @@ pub enum OpCode {
     Loop,
     Call,
     Invoke,
+    SuperInvoke,
     Closure,
     CloseUpvalue,
     Return,
     Class,
+    Inherit,
     Method,
 }
 
@@ -278,26 +289,29 @@ impl TryFrom<u8> for OpCode {
             11 => Ok(Self::SetUpvalue),
             12 => Ok(Self::GetProperty),
             13 => Ok(Self::SetProperty),
-            14 => Ok(Self::Equal),
-            15 => Ok(Self::Greater),
-            16 => Ok(Self::Less),
-            17 => Ok(Self::Add),
-            18 => Ok(Self::Subtract),
-            19 => Ok(Self::Multiply),
-            20 => Ok(Self::Divide),
-            21 => Ok(Self::Not),
-            22 => Ok(Self::Negate),
-            23 => Ok(Self::Print),
-            24 => Ok(Self::Jump),
-            25 => Ok(Self::JumpIfFalse),
-            26 => Ok(Self::Loop),
-            27 => Ok(Self::Call),
-            28 => Ok(Self::Invoke),
-            29 => Ok(Self::Closure),
-            30 => Ok(Self::CloseUpvalue),
-            31 => Ok(Self::Return),
-            32 => Ok(Self::Class),
-            33 => Ok(Self::Method),
+            14 => Ok(Self::GetSuper),
+            15 => Ok(Self::Equal),
+            16 => Ok(Self::Greater),
+            17 => Ok(Self::Less),
+            18 => Ok(Self::Add),
+            19 => Ok(Self::Subtract),
+            20 => Ok(Self::Multiply),
+            21 => Ok(Self::Divide),
+            22 => Ok(Self::Not),
+            23 => Ok(Self::Negate),
+            24 => Ok(Self::Print),
+            25 => Ok(Self::Jump),
+            26 => Ok(Self::JumpIfFalse),
+            27 => Ok(Self::Loop),
+            28 => Ok(Self::Call),
+            29 => Ok(Self::Invoke),
+            30 => Ok(Self::SuperInvoke),
+            31 => Ok(Self::Closure),
+            32 => Ok(Self::CloseUpvalue),
+            33 => Ok(Self::Return),
+            34 => Ok(Self::Class),
+            35 => Ok(Self::Inherit),
+            36 => Ok(Self::Method),
             _ => Err(()),
         }
     }

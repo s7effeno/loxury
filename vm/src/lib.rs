@@ -36,8 +36,12 @@ pub enum CompileError {
     ExpectedMethodName,
     ExpectedProperty,
     ThisOutsideClass,
+    SuperOutsideClass,
     TooMuchClassNesting,
     InitializerReturn,
+    SelfInheritance,
+    ExpectedDotAfterSuper,
+    SuperWithoutClass,
 }
 
 impl Display for CompileError {
@@ -73,8 +77,12 @@ impl Display for CompileError {
             Self::ExpectedProperty => write!(f, "expected property name after '.'"),
             Self::ExpectedMethodName => write!(f, "expected method name"),
             Self::ThisOutsideClass => write!(f, "can't use 'this' outside of class"),
+            Self::SuperOutsideClass => write!(f, "can't use 'super' outside of class"),
+            Self::SuperWithoutClass => write!(f, "can't use 'super' in class without superclass"),
             Self::TooMuchClassNesting => write!(f, "max depth reached for class nesting"),
             Self::InitializerReturn => write!(f, "can't return value from initializer"),
+            Self::SelfInheritance => write!(f, "class can't inherit from itself"),
+            Self::ExpectedDotAfterSuper => write!(f, "expected '.' after 'super'"),
         }
     }
 }
@@ -91,6 +99,7 @@ pub enum RunError {
     NotCallable,
     NotAnInstance(String),
     WrongArity(u8, u8),
+    UninheritableValue,
 }
 
 impl Display for RunError {
@@ -106,6 +115,7 @@ impl Display for RunError {
             Self::WrongArity(expected, actual) => {
                 write!(f, "expected {expected} arguments, got {actual}")
             }
+            Self::UninheritableValue => write!(f, "superclass must be a class")
         }
     }
 }
