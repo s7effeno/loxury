@@ -5,7 +5,6 @@ use std::ops::{Index, IndexMut};
 use std::{collections::HashMap, mem};
 
 use crate::chunk::{BoundMethod, Class, Closure, Function, Instance, ObjUpvalue, Value};
-use crate::vm::Vm;
 
 #[derive(Default)]
 struct Interner {
@@ -16,16 +15,6 @@ struct Interner {
 }
 
 impl Interner {
-    pub fn with_capacity(cap: usize) -> Interner {
-        let cap = cap.next_power_of_two();
-        Interner {
-            map: HashMap::default(),
-            vec: Vec::new(),
-            buf: String::with_capacity(cap),
-            full: Vec::new(),
-        }
-    }
-
     pub fn intern(&mut self, name: &str) -> u32 {
         if let Some(&id) = self.map.get(name) {
             return id;
@@ -195,6 +184,8 @@ impl Heap {
         freed += self.arena_upvalue.sweep();
         freed += self.arena_closure.sweep();
         freed += self.arena_class.sweep();
+        freed += self.arena_instance.sweep();
+        freed += self.arena_bound_method.sweep();
         self.bytes_allocated -= freed;
         self.next_gc = 2 * self.bytes_allocated;
     }
@@ -342,14 +333,20 @@ impl Trace for Closure {
 impl Trace for Class {
     fn trace(&self, heap: &Heap) {
         heap.mark(self.name);
-        // TODO: mark methods
+        for (k, v) in self.methods.iter() {
+            heap.mark(*k);
+            v.trace(heap);
+        }
     }
 }
 
 impl Trace for Instance {
     fn trace(&self, heap: &Heap) {
         heap.mark(self.class);
-        // TODO: mark properties
+        for (k, v) in self.fields.iter() {
+            heap.mark(*k);
+            v.trace(heap);
+        }
     }
 }
 
@@ -366,6 +363,12 @@ impl Trace for Value {
                 heap.mark(*v);
             }
             Self::Class(v) => {
+                heap.mark(*v);
+            }
+            Self::Instance(v) => {
+                heap.mark(*v);
+            }
+            Self::Method(v) => {
                 heap.mark(*v);
             }
             _ => (),
