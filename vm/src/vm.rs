@@ -8,7 +8,8 @@ use crate::gc::{Allocate, GcHandle, Heap, Mark, Trace};
 use crate::lex::Lexer;
 use crate::location::AtCoords;
 use crate::{ArrayVec, RunError};
-use std::collections::HashMap;
+// use std::collections::HashMap;
+use fxhash::FxHashMap as HashMap;
 
 use std::time::UNIX_EPOCH;
 
@@ -45,7 +46,7 @@ impl Vm {
         let mut ret = Self {
             frames: ArrayVec::new(),
             stack: ArrayVec::new(),
-            globals: HashMap::new(),
+            globals: HashMap::default(),
             objects: objects,
             open_upvalues: Vec::new(),
             init_string,

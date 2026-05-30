@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+// use std::collections::HashMap;
+use fxhash::FxHashMap as HashMap;
 use std::fmt::{self, Debug, Display};
 
 // use crate::gc::{Gc, GcHandle, Manager};
@@ -559,7 +560,7 @@ impl Class {
     pub fn new(name: GcHandle<String>) -> Self {
         Self {
             name,
-            methods: HashMap::new(),
+            methods: HashMap::default(),
         }
     }
 }
@@ -574,7 +575,7 @@ impl Instance {
     pub fn new(class: GcHandle<Class>) -> Self {
         Self {
             class,
-            fields: HashMap::new(),
+            fields: HashMap::default(),
         }
     }
 }
