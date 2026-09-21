@@ -60,7 +60,7 @@ impl Vm {
             init_string,
         };
         ret.define_native("clock", 0, |_| {
-            Value::Number(UNIX_EPOCH.elapsed().unwrap().as_millis() as f64)
+            Value::Number(UNIX_EPOCH.elapsed().unwrap().as_secs_f64())
         });
         ret
     }
@@ -327,9 +327,7 @@ impl Vm {
                         (Value::Bool(a), Value::Bool(b)) => a == b,
                         (Value::Nil, Value::Nil) => true,
                         (Value::Number(a), Value::Number(b)) => a == b,
-                        (Value::String(a), Value::String(b)) => {
-                            self.objects[a] == self.objects[b]
-                        }
+                        (Value::String(a), Value::String(b)) => a == b,
                         (Value::Function(a), Value::Function(b)) => a == b,
                         (Value::Closure(a), Value::Closure(b)) => a == b,
                         (Value::Class(a), Value::Class(b)) => a == b,
