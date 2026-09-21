@@ -72,10 +72,16 @@ struct GcObject<T> {
     marked: Cell<bool>,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, Debug)]
 pub struct GcHandle<T> {
     idx: usize,
     _type: PhantomData<*mut T>,
+}
+
+impl<T> PartialEq for GcHandle<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.idx == other.idx
+    }
 }
 
 impl<T> Hash for GcHandle<T> {
@@ -88,7 +94,7 @@ impl<T> GcHandle<T> {
     fn new(index: usize) -> Self {
         Self {
             idx: index,
-            _type: PhantomData::default(),
+            _type: PhantomData,
         }
     }
 }
@@ -188,7 +194,7 @@ impl Heap {
         freed += self.arena_instance.sweep();
         freed += self.arena_bound_method.sweep();
         self.bytes_allocated -= freed;
-        self.next_gc = 2 * self.bytes_allocated;
+        self.next_gc = (2 * self.bytes_allocated).max(1024 * 256);
     }
 
     pub fn should_sweep(&self) -> bool {
@@ -200,13 +206,13 @@ impl<T> _Allocate for Arena<T> {
     type Item = T;
 
     fn alloc(&mut self, value: T) -> (GcHandle<T>, usize) {
-        let (pos, bytes) = if let Some(pos) = self.recycle.pop() {
+        let pos = if let Some(pos) = self.recycle.pop() {
             self.objects[pos] = GcObject {
                 value,
                 marked: false.into(),
             };
             self.live[pos] = true;
-            (pos, 0)
+            pos
         } else {
             let pos = self.objects.len();
             self.objects.push(GcObject {
@@ -214,9 +220,9 @@ impl<T> _Allocate for Arena<T> {
                 marked: false.into(),
             });
             self.live.push(true);
-            (pos, mem::size_of::<T>())
+            pos
         };
-        (GcHandle::new(pos), bytes)
+        (GcHandle::new(pos), mem::size_of::<T>())
     }
 }
 
@@ -274,7 +280,7 @@ impl _Allocate for StringArena {
     type Item = String;
     fn alloc(&mut self, value: Self::Item) -> (GcHandle<Self::Item>, usize) {
         let index = self.interner.intern(&value);
-        (GcHandle::new(index as usize), value.bytes().len())
+        (GcHandle::new(index as usize), value.len())
     }
 }
 

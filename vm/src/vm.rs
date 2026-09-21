@@ -13,6 +13,8 @@ use fxhash::FxHashMap as HashMap;
 
 use std::time::UNIX_EPOCH;
 
+const FRAMES_MAX: usize = 64;
+
 struct CallFrame {
     closure: GcHandle<Closure>,
     ip: usize,
@@ -30,13 +32,19 @@ impl CallFrame {
 }
 
 pub struct Vm {
-    frames: ArrayVec<CallFrame, 64>,
+    frames: ArrayVec<CallFrame, FRAMES_MAX>,
     stack: ArrayVec<Value, { 64 * 256 }>,
     // name -> value
     globals: HashMap<GcHandle<String>, Value>,
     objects: Heap,
     open_upvalues: Vec<GcHandle<ObjUpvalue>>,
     init_string: GcHandle<String>,
+}
+
+impl Default for Vm {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Vm {
@@ -47,7 +55,7 @@ impl Vm {
             frames: ArrayVec::new(),
             stack: ArrayVec::new(),
             globals: HashMap::default(),
-            objects: objects,
+            objects,
             open_upvalues: Vec::new(),
             init_string,
         };
@@ -75,6 +83,9 @@ impl Vm {
         let arity = self.objects[c.function].arity;
         if arity != arg_count {
             self.error(RunError::WrongArity(arity, arg_count))?;
+        }
+        if self.frames.len() >= FRAMES_MAX {
+            self.error(RunError::StackOverflow)?;
         }
         // FIXME: repeated operation
         let base = self.stack.len() - 1 - arg_count as usize;
@@ -146,13 +157,16 @@ impl Vm {
             );
             let bound = self.alloc(bound);
             self.stack.pop();
-            Ok(self.stack.push(Value::Method(bound)))
+            self.stack.push(Value::Method(bound));
+            Ok(())
         } else {
             let name = &self.objects[name];
             self.error(RunError::UndefinedProperty(name.into()))
         }
     }
 
+    // unit Err: errors are already reported with locations
+    #[allow(clippy::result_unit_err)]
     pub fn run(&mut self, source: &str) -> Result<(), ()> {
         // clear previous junk
         // FIXME: check if needs optimization
@@ -172,7 +186,6 @@ impl Vm {
         self.stack.push(Value::Closure(closure));
         self.execute().map_err(|e| {
             println!("{e}");
-            ()
         })
     }
 
@@ -181,7 +194,8 @@ impl Vm {
     }
 
     fn error(&mut self, error: RunError) -> Result<(), AtCoords<RunError>> {
-        let ip = self.current_frame().ip;
+        // frame.ip is one past the failing instruction; back up onto it
+        let ip = self.current_frame().ip.saturating_sub(1);
         let closure = self.current_frame().closure;
         let function = &self.objects[closure].function;
         let function = &self.objects[*function];
@@ -229,7 +243,7 @@ impl Vm {
                     let result = self.stack.pop().unwrap();
                     let frame = self.frames.pop().unwrap();
                     self.close_upvalues(frame.base);
-                    if self.frames.len() == 0 {
+                    if self.frames.is_empty() {
                         self.stack.pop();
                         return Ok(());
                     }
@@ -313,6 +327,21 @@ impl Vm {
                         (Value::Bool(a), Value::Bool(b)) => a == b,
                         (Value::Nil, Value::Nil) => true,
                         (Value::Number(a), Value::Number(b)) => a == b,
+                        (Value::String(a), Value::String(b)) => {
+                            self.objects[a] == self.objects[b]
+                        }
+                        (Value::Function(a), Value::Function(b)) => a == b,
+                        (Value::Closure(a), Value::Closure(b)) => a == b,
+                        (Value::Class(a), Value::Class(b)) => a == b,
+                        (Value::Instance(a), Value::Instance(b)) => a == b,
+                        (Value::Method(a), Value::Method(b)) => a == b,
+                        (
+                            Value::NativeFunction { arity: arity_a, f: f_a },
+                            Value::NativeFunction { arity: arity_b, f: f_b },
+                        ) => {
+                            arity_a == arity_b
+                                && std::ptr::fn_addr_eq(f_a, f_b)
+                        }
                         _ => false,
                     }));
                 }
@@ -334,7 +363,7 @@ impl Vm {
                 }
                 OpCode::Print => {
                     let value = self.stack.last().unwrap();
-                    println!("{}", ValueDisplay(&value, &self.objects));
+                    println!("{}", ValueDisplay(value, &self.objects));
                     self.stack.pop();
                 }
                 OpCode::Pop => {
@@ -367,14 +396,14 @@ impl Vm {
                 OpCode::GetLocal => {
                     let slot = read_byte!();
                     let slot = self.current_frame().base + slot as usize;
-                    let value = self.stack[slot as usize];
+                    let value = self.stack[slot];
                     self.stack.push(value);
                 }
                 OpCode::SetLocal => {
                     let slot = read_byte!();
                     let slot = self.current_frame().base + slot as usize;
                     let value = self.stack.last().unwrap();
-                    self.stack[slot as usize] = *value;
+                    self.stack[slot] = *value;
                 }
                 OpCode::JumpIfFalse => {
                     let offset = u16::from_be_bytes([read_byte!(), read_byte!()]);
@@ -402,7 +431,7 @@ impl Vm {
 
                     let closure = &self.objects[closure_obj];
                     let upvalue_count = self.objects[closure.function].upvalue_count;
-                    for i in 0..upvalue_count {
+                    for _ in 0..upvalue_count {
                         let is_local = read_byte!();
                         let index = read_byte!();
                         if is_local == 1 {
@@ -413,7 +442,7 @@ impl Vm {
                         } else {
                             let current_closure_obj = self.current_frame().closure;
                             let current_closure = &self.objects[current_closure_obj];
-                            let upvalue = current_closure.upvalues[i].clone();
+                            let upvalue = current_closure.upvalues[index as usize];
                             let closure = &mut self.objects[closure_obj];
                             closure.upvalues.push(upvalue);
                         }
@@ -446,14 +475,14 @@ impl Vm {
                 OpCode::GetProperty => {
                     let value = self.stack.last().unwrap();
                     let Ok(instance) = value.try_as_instance() else {
-                        let v = ValueDisplay(&value, &self.objects).to_string();
+                        let v = ValueDisplay(value, &self.objects).to_string();
                         return self.error(RunError::NotAnInstance(v));
                     };
                     let instance = &self.objects[instance];
                     let name = read_constant!().try_as_string().unwrap();
                     if let Some(value) = instance.fields.get(&name) {
                         self.stack.pop();
-                        self.stack.push(value.clone());
+                        self.stack.push(*value);
                     } else {
                         self.bind_method(instance.class, name)?
                     }
@@ -483,7 +512,7 @@ impl Vm {
                     let base = self.stack.len() - 1 - arg_count;
                     let receiver = &self.stack[base];
                     let Value::Instance(instance) = receiver else {
-                        let v = ValueDisplay(&receiver, &self.objects).to_string();
+                        let v = ValueDisplay(receiver, &self.objects).to_string();
                         return self.error(RunError::NotAnInstance(v))
                     };
                     let instance = &self.objects[*instance];
@@ -524,10 +553,9 @@ impl Vm {
     }
 
     fn close_upvalues(&mut self, last: usize) {
-        let mut it = self.open_upvalues.iter().rev();
         // FIXME: ugly
         let mut top = self.open_upvalues.len();
-        while let Some(upvalue) = it.next() {
+        for upvalue in self.open_upvalues.iter().rev() {
             let upvalue = &mut self.objects[*upvalue];
             let slot = upvalue.as_open().unwrap();
             if slot < last {
@@ -549,8 +577,7 @@ impl Vm {
 
     // FIXME: ugly
     fn capture_upvalue(&mut self, slot: usize) -> GcHandle<ObjUpvalue> {
-        let mut it = self.open_upvalues.iter().enumerate().rev();
-        while let Some((i, upvalue_obj)) = it.next() {
+        for (i, upvalue_obj) in self.open_upvalues.iter().enumerate().rev() {
             let upvalue = &self.objects[*upvalue_obj].as_open().unwrap();
             if *upvalue == slot {
                 return *upvalue_obj;

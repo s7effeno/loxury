@@ -7,7 +7,7 @@ pub mod vm;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
-use std::mem::{self, MaybeUninit};
+use std::mem::MaybeUninit;
 use std::{ptr, slice};
 
 #[derive(Debug, Clone)]
@@ -22,6 +22,9 @@ pub enum CompileError {
     UnclosedBlock,
     UnopenedBlock,
     TooManyLocals,
+    TooManyConstants,
+    TooManyParameters,
+    TooManyArguments,
     VariableRedeclaration(String),
     SelfReferentialVariableInitializer(String),
     ExpectedControlLeftParen,
@@ -57,6 +60,9 @@ impl Display for CompileError {
             Self::UnclosedBlock => write!(f, "expected '}}' at the end of block"),
             Self::UnopenedBlock => write!(f, "expected '{{' before a block"),
             Self::TooManyLocals => write!(f, "can't have more than 256 local variables"),
+            Self::TooManyConstants => write!(f, "too many constants in one chunk"),
+            Self::TooManyParameters => write!(f, "can't have more than 255 parameters"),
+            Self::TooManyArguments => write!(f, "can't have more than 255 arguments"),
             Self::VariableRedeclaration(v) => {
                 write!(f, "variable '{}' already declared in this scope", v)
             }
@@ -100,6 +106,7 @@ pub enum RunError {
     NotAnInstance(String),
     WrongArity(u8, u8),
     UninheritableValue,
+    StackOverflow,
 }
 
 impl Display for RunError {
@@ -115,7 +122,8 @@ impl Display for RunError {
             Self::WrongArity(expected, actual) => {
                 write!(f, "expected {expected} arguments, got {actual}")
             }
-            Self::UninheritableValue => write!(f, "superclass must be a class")
+            Self::UninheritableValue => write!(f, "superclass must be a class"),
+            Self::StackOverflow => write!(f, "stack overflow")
         }
     }
 }
@@ -149,7 +157,7 @@ impl<T, const N: usize> ArrayVec<T, N> {
 
     fn pop(&mut self) -> Option<T> {
         self.len = self.len.checked_sub(1)?;
-        Some(unsafe { ptr::read(mem::transmute(self.values.as_ptr().add(self.len))) })
+        Some(unsafe { ptr::read(self.values.as_ptr().add(self.len) as *const T) })
     }
 
     // unsafe fn pop_unchecked(&mut self) -> T {

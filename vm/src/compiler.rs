@@ -100,19 +100,19 @@ impl<'a> Locals<'a> {
         if self.locals.len == u8::MAX as usize + 1 {
             Err(())
         } else {
-            Ok(self.locals.push(Local::new(name)))
+            self.locals.push(Local::new(name));
+            Ok(())
         }
     }
 
     fn is_unique(&self, name: &str) -> bool {
-        for local in self.locals.iter() {
+        // innermost first; outer scopes end the search
+        for local in self.locals.iter().rev() {
             match local.depth {
-                Some(depth) if depth < self.scope_depth => return true,
+                Some(depth) if depth < self.scope_depth => break,
                 _ => {
                     if local.name == name {
                         return false;
-                    } else {
-                        ()
                     }
                 }
             };
@@ -238,11 +238,9 @@ impl CompilationFrame<'_> {
             if let Some(local) = local {
                 // FIXME: locals should be directly indexable
                 self.enclosing.as_mut().unwrap().locals.locals[local as usize].is_captured = true;
-                self.add_upvalue(local, true, name.coords())
-                    .map(|u| Some(u))
+                self.add_upvalue(local, true, name.coords()).map(Some)
             } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
-                self.add_upvalue(upvalue, false, name.coords())
-                    .map(|u| Some(u))
+                self.add_upvalue(upvalue, false, name.coords()).map(Some)
             } else {
                 Ok(None)
             }
@@ -265,14 +263,12 @@ impl CompilationFrame<'_> {
             .find(|(_, u)| *u == &upvalue)
         {
             Ok(i as u8)
+        } else if self.upvalues.len() == u8::MAX as usize + 1 {
+            Err(coords.locate(CompileError::TooManyUpvalues).into())
         } else {
-            if self.upvalues.len() == u8::MAX as usize + 1 {
-                Err(coords.locate(CompileError::TooManyUpvalues).into())
-            } else {
-                self.upvalues.push(upvalue);
-                self.function.upvalue_count += 1;
-                Ok(self.upvalues.len() as u8 - 1)
-            }
+            self.upvalues.push(upvalue);
+            self.function.upvalue_count += 1;
+            Ok((self.upvalues.len() - 1) as u8)
         }
     }
 
@@ -301,6 +297,7 @@ impl<'a, 't> Compiler<'a, 't> {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn compile(&mut self) -> Result<Function, ()> {
         while self.peek_token().is_some() {
             self.declaration();
@@ -358,29 +355,30 @@ impl<'a, 't> Compiler<'a, 't> {
         }
     }
 
-    fn peek_token<'b>(&'b mut self) -> Option<AtCoords<Token<'a>>> {
+    fn peek_token(&mut self) -> Option<AtCoords<Token<'a>>> {
         let peek = self.lexer.peek()?;
         match peek {
             Ok(t) => Some(t.clone()),
             Err(e) => {
-                self.errors.report(&e);
+                self.errors.report(e);
                 self.lexer.next();
                 self.peek_token()
             }
         }
     }
 
-    fn next_token_if<'b, F>(&'b mut self, f: F) -> Option<AtCoords<Token<'a>>>
+    fn next_token_if<F>(&mut self, f: F) -> Option<AtCoords<Token<'a>>>
     where
         F: Fn(TokenKind) -> bool,
     {
-        self.peek_token().filter(|t| f(t.kind())).map(|t| {
-            self.lexer.next();
-            t
-        })
+        self.peek_token()
+            .filter(|t| f(t.kind()))
+            .inspect(|_| {
+                self.lexer.next();
+            })
     }
 
-    fn next_token_if_eq<'b>(&'b mut self, kind: TokenKind) -> Option<AtCoords<Token<'_>>> {
+    fn next_token_if_eq(&mut self, kind: TokenKind) -> Option<AtCoords<Token<'_>>> {
         self.next_token_if(|t| t == kind)
     }
 
@@ -409,11 +407,6 @@ impl<'a, 't> Compiler<'a, 't> {
         self.emit_byte(op as u8, coords)
     }
 
-    fn emit_bytes(&mut self, byte1: u8, byte2: u8, coords: Coords) {
-        self.emit_byte(byte1, coords);
-        self.emit_byte(byte2, coords);
-    }
-
     fn emit_byte(&mut self, byte: u8, coords: Coords) {
         self.current_chunk().write(byte, coords)
     }
@@ -439,7 +432,7 @@ impl<'a, 't> Compiler<'a, 't> {
     }
 
     fn emit_constant(&mut self, value: Value, coords: Coords) {
-        let constant = self.make_constant(value);
+        let constant = self.make_constant(value, coords);
         self.emit_op(OpCode::Constant, coords);
         self.emit_byte(constant, coords);
     }
@@ -462,10 +455,11 @@ impl<'a, 't> Compiler<'a, 't> {
         &mut self.frame.function.chunk
     }
 
-    fn make_constant(&mut self, value: Value) -> u8 {
+    fn make_constant(&mut self, value: Value, coords: Coords) -> u8 {
         let constant = self.current_chunk().add_constant(value);
-        if constant >= u8::MAX as u32 {
-            // ERROR
+        if constant > u8::MAX as u32 {
+            self.errors
+                .report(&coords.locate(CompileError::TooManyConstants).into());
             0
         } else {
             constant as u8
@@ -566,8 +560,12 @@ impl<'a, 't> Compiler<'a, 't> {
         }
 
         if self.next_token_if_eq(TokenKind::Semicolon).is_some() {
-            self.emit_op(OpCode::GetLocal, coords);
-            self.emit_byte(0, coords);
+            if let FunctionKind::Initializer = self.frame.function.kind {
+                self.emit_op(OpCode::GetLocal, coords);
+                self.emit_byte(0, coords);
+            } else {
+                self.emit_op(OpCode::Nil, coords);
+            }
             self.emit_op(OpCode::Return, coords);
         } else {
             if let FunctionKind::Initializer = self.frame.function.kind {
@@ -598,9 +596,9 @@ impl<'a, 't> Compiler<'a, 't> {
         self.emit_op(OpCode::Pop, coords);
     }
 
-    fn identifier_constant(&mut self, name: String) -> u8 {
+    fn identifier_constant(&mut self, name: String, coords: Coords) -> u8 {
         let value = self.objects.alloc(name);
-        self.make_constant(Value::String(value))
+        self.make_constant(Value::String(value), coords)
     }
 
     fn add_local(&mut self, name: AtCoords<Token<'a>>) {
@@ -624,6 +622,7 @@ impl<'a, 't> Compiler<'a, 't> {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     fn parse_variable(&mut self, error: CompileError) -> Result<(u8, Coords), ()> {
         if let Some(identifier) = self.consume(TokenKind::Identifier, error) {
             let coords = identifier.coords();
@@ -633,7 +632,7 @@ impl<'a, 't> Compiler<'a, 't> {
             if self.frame.locals.scope_depth > 0 {
                 Ok((0, coords))
             } else {
-                Ok((self.identifier_constant(span), coords))
+                Ok((self.identifier_constant(span, coords), coords))
             }
         } else {
             Err(())
@@ -689,10 +688,10 @@ impl<'a, 't> Compiler<'a, 't> {
         self.statement();
         self.emit_loop(loop_start, coords);
 
-        to_exit.map(|j| {
+        if let Some(j) = to_exit {
             self.patch_jump(j);
             self.emit_op(OpCode::Pop, coords);
-        });
+        }
 
         self.end_scope(coords);
     }
@@ -706,6 +705,7 @@ impl<'a, 't> Compiler<'a, 't> {
         );
 
         let else_branch = self.emit_jump(OpCode::JumpIfFalse, coords);
+        self.emit_op(OpCode::Pop, coords);
         self.statement();
         let end = self.emit_jump(OpCode::Jump, coords);
         self.patch_jump(else_branch);
@@ -743,21 +743,26 @@ impl<'a, 't> Compiler<'a, 't> {
         self.nest(kind);
         self.begin_scope();
         self.consume(TokenKind::LeftParen, CompileError::UnopenedArgumentsList);
-        if let Some(coords) = self
+        if self
             .peek_token()
             .filter(|t| t.kind() != TokenKind::RightParen)
-            .map(|t| t.coords())
+            .is_some()
         {
             loop {
-                self.frame.function.arity += 1;
-                if self.frame.function.arity > u8::MAX {
-                    self.errors
-                        .report(&coords.locate(CompileError::TooManyLocals).into())
-                }
-                if let Ok((constant, coords)) =
-                    self.parse_variable(CompileError::ExpectedVariableName)
-                {
-                    self.define_variable(constant, coords);
+                if self.frame.function.arity < u8::MAX {
+                    self.frame.function.arity += 1;
+                    if let Ok((constant, coords)) =
+                        self.parse_variable(CompileError::ExpectedVariableName)
+                    {
+                        self.define_variable(constant, coords);
+                    }
+                } else {
+                    // over the limit: consume the name but don't declare it
+                    if let Some(t) = self.peek_token() {
+                        self.errors
+                            .report(&t.co_locate(CompileError::TooManyParameters).into());
+                    }
+                    self.next_token_if_eq(TokenKind::Identifier);
                 }
                 if self.next_token_if_eq(TokenKind::Comma).is_none() {
                     break;
@@ -788,7 +793,7 @@ impl<'a, 't> Compiler<'a, 't> {
         let function_obj = self.objects.alloc(function);
 
         self.emit_op(OpCode::Closure, coords);
-        let function = self.make_constant(Value::Function(function_obj));
+        let function = self.make_constant(Value::Function(function_obj), coords);
         self.emit_byte(function, coords);
 
         for upvalue in &*upvalues {
@@ -801,11 +806,18 @@ impl<'a, 't> Compiler<'a, 't> {
         if let Some(t) = self.consume(TokenKind::Identifier, CompileError::ExpectedMethodName) {
             let coords = t.coords();
             let name = t.span();
-            let constant = self.identifier_constant(name.into());
+            let constant = self.identifier_constant(name.into(), coords);
 
             self.function(if name == "init" { FunctionKind::Initializer } else { FunctionKind::Method }, coords, name);
             self.emit_op(OpCode::Method, coords);
             self.emit_byte(constant, coords);
+        } else if self
+            .peek_token()
+            .map(|t| t.kind() != TokenKind::RightBrace)
+            .unwrap_or(false)
+        {
+            // skip the bad token so the method loop makes progress
+            self.next_token();
         }
     }
 
@@ -814,7 +826,7 @@ impl<'a, 't> Compiler<'a, 't> {
     fn class_declaration(&mut self) {
         if let Some(class) = self.consume(TokenKind::Identifier, CompileError::ExpectedClassName) {
             let class_clone = class.clone();
-            let index = self.identifier_constant(class_clone.span().into());
+            let index = self.identifier_constant(class_clone.span().into(), class.coords());
             let coords = class.coords();
             self.declare_variable(class_clone);
 
@@ -849,10 +861,11 @@ impl<'a, 't> Compiler<'a, 't> {
 
             self.consume(TokenKind::LeftBrace, CompileError::UnopenedBlock);
 
-            while !self
+            // like block(): stop at EOF too
+            while self
                 .peek_token()
-                .filter(|t| t.kind() == TokenKind::RightBrace)
-                .is_some()
+                .map(|t| t.kind() != TokenKind::RightBrace)
+                .unwrap_or(false)
             {
                 self.method();
             }
@@ -869,7 +882,7 @@ impl<'a, 't> Compiler<'a, 't> {
         }
     }
 
-    fn fun_declaration<'b>(&'b mut self) {
+    fn fun_declaration(&mut self) {
         let Some(name) = self
             .peek_token()
             .filter(|t| t.kind() == TokenKind::Identifier)
@@ -903,7 +916,15 @@ impl<'a, 't> Compiler<'a, 't> {
         {
             loop {
                 self.expression();
-                count += 1;
+                // don't overflow the u8 arg count
+                if count == u8::MAX {
+                    if let Some(t) = self.peek_token() {
+                        self.errors
+                            .report(&t.co_locate(CompileError::TooManyArguments).into());
+                    }
+                } else {
+                    count += 1;
+                }
                 if self.next_token_if_eq(TokenKind::Comma).is_none() {
                     break;
                 }
@@ -920,7 +941,7 @@ impl<'a, 't> Compiler<'a, 't> {
         self.patch_jump(end);
     }
 
-    fn parse_precedence<'b>(&'b mut self, precedence: Precedence) {
+    fn parse_precedence(&mut self, precedence: Precedence) {
         if let Some(token) = self.peek_token() {
             let can_assign = precedence <= Precedence::Assignment;
             if self.prefix_rule(&token, can_assign).is_some() {
@@ -1039,7 +1060,7 @@ impl<'a, 't> Compiler<'a, 't> {
             TokenKind::GreaterEqual => Precedence::Comparison,
             TokenKind::Less => Precedence::Comparison,
             TokenKind::LessEqual => Precedence::Comparison,
-            TokenKind::And => Precedence::None,
+            TokenKind::And => Precedence::And,
             TokenKind::Class => Precedence::None,
             TokenKind::Else => Precedence::None,
             TokenKind::False => Precedence::None,
@@ -1047,7 +1068,7 @@ impl<'a, 't> Compiler<'a, 't> {
             TokenKind::For => Precedence::None,
             TokenKind::If => Precedence::None,
             TokenKind::Nil => Precedence::None,
-            TokenKind::Or => Precedence::None,
+            TokenKind::Or => Precedence::Or,
             TokenKind::Print => Precedence::None,
             TokenKind::Return => Precedence::None,
             TokenKind::Super => Precedence::None,
@@ -1108,7 +1129,7 @@ impl<'a, 't> Compiler<'a, 't> {
             (arg, OpCode::GetUpvalue, OpCode::SetUpvalue)
         } else {
             (
-                self.identifier_constant(token.span().into()),
+                self.identifier_constant(token.span().into(), token.coords()),
                 OpCode::GetGlobal,
                 OpCode::SetGlobal,
             )
@@ -1144,19 +1165,19 @@ impl<'a, 't> Compiler<'a, 't> {
 
         self.consume(TokenKind::Dot, CompileError::ExpectedDotAfterSuper);
         if let Some(name) = self.consume(TokenKind::Identifier, CompileError::ExpectedMethodName) {
-            let constant = self.identifier_constant(name.span().into());
+            let constant = self.identifier_constant(name.span().into(), name.coords());
 
-            self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "this")).into(), false);
+            self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "this")), false);
             if let Some(paren) = self.next_token_if_eq(TokenKind::LeftParen) {
                 let paren_coords = paren.coords();
                 let name_coords = name.coords();
                 let arg_count = self.argument_list();
-                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")).into(), false);
+                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")), false);
                 self.emit_op(OpCode::SuperInvoke, paren_coords);
                 self.emit_byte(constant, name_coords);
                 self.emit_byte(arg_count, paren_coords);
             } else {
-                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")).into(), false);
+                self.named_variable(&name.co_locate(Token::new(TokenKind::Identifier, "super")), false);
                 self.emit_op(OpCode::GetSuper, name.coords());
                 self.emit_byte(constant, name.coords());
             }
@@ -1179,7 +1200,7 @@ impl<'a, 't> Compiler<'a, 't> {
         self.parse_precedence(Precedence::Unary);
         match token.kind() {
             TokenKind::Bang => self.emit_op(OpCode::Not, token.coords()),
-            TokenKind::Minus => self.emit_op(OpCode::Subtract, token.coords()),
+            TokenKind::Minus => self.emit_op(OpCode::Negate, token.coords()),
             _ => unreachable!(),
         }
     }
@@ -1217,12 +1238,12 @@ impl<'a, 't> Compiler<'a, 't> {
         self.emit_byte(arg_count, token.coords());
     }
 
-    fn dot(&mut self, token: &AtCoords<Token<'a>>, can_assign: bool) {
+    fn dot(&mut self, _token: &AtCoords<Token<'a>>, can_assign: bool) {
         if let Some(identifier) =
             self.consume(TokenKind::Identifier, CompileError::ExpectedProperty)
         {
             let coords = identifier.coords();
-            let name = self.identifier_constant(identifier.span().into());
+            let name = self.identifier_constant(identifier.span().into(), coords);
             if can_assign && self.next_token_if_eq(TokenKind::Equal).is_some() {
                 self.expression();
                 self.emit_op(OpCode::SetProperty, coords);
@@ -1232,7 +1253,7 @@ impl<'a, 't> Compiler<'a, 't> {
                 let arg_count = self.argument_list();
                 self.emit_op(OpCode::Invoke, coords_paren);
                 self.emit_byte(name, coords);
-                self.emit_byte(arg_count as u8, coords_paren);
+                self.emit_byte(arg_count, coords_paren);
             } else {
                 self.emit_op(OpCode::GetProperty, coords);
                 self.emit_byte(name, coords);

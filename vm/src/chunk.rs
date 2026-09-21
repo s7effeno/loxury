@@ -8,7 +8,7 @@ use crate::{
     location::Coords,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Chunk {
     code: Vec<u8>,
     coords: Vec<Coords>,
@@ -17,15 +17,15 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn new() -> Self {
-        Self {
-            code: Vec::new(),
-            coords: Vec::new(),
-            constants: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn len(&self) -> usize {
         self.code.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.code.is_empty()
     }
 
     // TODO: consider making unsafe, +3% boost
@@ -179,7 +179,7 @@ impl Chunk {
                     let index = *bytes.next().unwrap().1 as usize;
                     let arg = &self.constants[index];
                     print!("closure {} ", index);
-                    println!("{:?}", ValueDisplay(arg, &objects));
+                    println!("{:?}", ValueDisplay(arg, objects));
                     let function = arg.try_as_function().unwrap();
                     let function = &objects[function];
                     for _ in 0..function.upvalue_count {
@@ -245,8 +245,8 @@ pub enum OpCode {
     GetUpvalue,
     SetUpvalue,
     GetProperty,
-    GetSuper,
     SetProperty,
+    GetSuper,
     Equal,
     Greater,
     Less,
@@ -334,6 +334,8 @@ pub enum Value {
 }
 
 impl Value {
+    // failure is reported at the call site; nothing to carry
+    #[allow(clippy::result_unit_err)]
     pub fn try_as_string(&self) -> Result<GcHandle<String>, ()> {
         if let Self::String(v) = self {
             Ok(*v)
@@ -342,6 +344,7 @@ impl Value {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn try_as_function(&self) -> Result<GcHandle<Function>, ()> {
         if let Self::Function(v) = self {
             Ok(*v)
@@ -350,6 +353,7 @@ impl Value {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn try_as_instance(&self) -> Result<GcHandle<Instance>, ()> {
         if let Self::Instance(v) = self {
             Ok(*v)
@@ -358,6 +362,7 @@ impl Value {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn try_as_class(&self) -> Result<GcHandle<Class>, ()> {
         if let Self::Class(v) = self {
             Ok(*v)
@@ -366,6 +371,7 @@ impl Value {
         }
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn try_as_closure(&self) -> Result<GcHandle<Closure>, ()> {
         if let Self::Closure(v) = self {
             Ok(*v)
@@ -541,6 +547,7 @@ pub enum ObjUpvalue {
 }
 
 impl ObjUpvalue {
+    #[allow(clippy::result_unit_err)]
     pub fn as_open(&self) -> Result<usize, ()> {
         if let Self::Open(slot) = self {
             Ok(*slot)

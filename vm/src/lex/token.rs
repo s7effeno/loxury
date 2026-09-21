@@ -56,7 +56,7 @@ impl<'a> Token<'a> {
 
 impl<'a> AtCoords<Token<'a>> {
     pub fn kind(&self) -> Kind {
-        self.value.kind.clone()
+        self.value.kind
     }
 
     pub fn span<'b>(&'b self) -> &'a str {

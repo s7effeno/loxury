@@ -34,13 +34,12 @@ impl<'a> Text<'a> {
     }
 
     fn next_if(&mut self, func: impl FnOnce(char) -> bool) -> Option<char> {
-        self.peek().filter(|c| func(*c)).map(|c| {
+        self.peek().filter(|c| func(*c)).inspect(|_| {
             self.next();
-            c
         })
     }
 
-    fn advance_while<'b, F>(&'b mut self, accept: F) -> usize
+    fn advance_while<F>(&mut self, accept: F) -> usize
     where
         Self: Sized,
         F: Fn(char) -> bool,
@@ -199,16 +198,16 @@ impl<'a> Iterator for Lexer<'a> {
                         Err(AtCoordsOrEof::at_eof(CompileError::UnclosedString))
                     }
                 }
-                c if c.is_digit(10) => {
+                c if c.is_ascii_digit() => {
                     let start = self.source.text.as_str();
-                    let mut len = self.source.advance_while(|c| c.is_digit(10));
+                    let mut len = self.source.advance_while(|c| c.is_ascii_digit());
                     let mut cloned = self.source.text.clone();
                     if cloned.next().is_some_and(|c| c == '.')
-                        && cloned.next().is_some_and(|c| c.is_digit(10))
+                        && cloned.next().is_some_and(|c| c.is_ascii_digit())
                     {
                         // remove '.'
                         self.source.next();
-                        len += 1 + self.source.advance_while(|c| c.is_digit(10))
+                        len += 1 + self.source.advance_while(|c| c.is_ascii_digit())
                     }
                     local_spanned_token(TokenKind::Number, &start[..len])
                 }
@@ -610,7 +609,7 @@ mod tests {
 
     #[test]
     fn comment() {
-        assert!(matches!(Lexer::new("//").next(), None))
+        assert!(Lexer::new("//").next().is_none())
     }
 
     #[test]
