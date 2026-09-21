@@ -16,19 +16,25 @@ fn main() {
     };
 }
 
+fn drain(vm: &Vm) {
+    for line in &vm.output {
+        println!("{line}");
+    }
+}
+
 fn run_prompt(vm: &mut Vm) -> ! {
     loop {
         print!("> ");
         std::io::stdout().flush().unwrap();
         let mut input = String::new();
         io::stdin().read_line(&mut input).unwrap();
-        let _ = vm.run(&input);
+        let _ = vm.run(&input).map(|_| drain(vm));
     }
 }
 
 fn run_file(vm: &mut Vm, filename: &str) -> Result<(), ()> {
     match fs::read_to_string(filename) {
-        Ok(source) => vm.run(&source),
+        Ok(source) => vm.run(&source).map(|_| drain(vm)),
         Err(e) => {
             eprintln!("{}", e.to_string().to_lowercase());
             Err(())

@@ -306,12 +306,13 @@ impl<'a, 't> Compiler<'a, 't> {
             self.current_chunk().write_nowhere(OpCode::Nil as u8);
             self.current_chunk().write_nowhere(OpCode::Return as u8);
 
-            println!(
-                "---{}---",
-                FunctionDisplay(&self.frame.function, self.objects)
-            );
-            let _ = self.frame.function.chunk.disassemble(self.objects);
-
+            if std::env::var("LOX_DUMP").is_ok() {
+                println!(
+                    "---{}---",
+                    FunctionDisplay(&self.frame.function, self.objects)
+                );
+                let _ = self.frame.function.chunk.disassemble(self.objects);
+            }
             let ret = mem::replace(
                 &mut self.frame.function,
                 Function::new(FunctionKind::Script),
@@ -787,8 +788,10 @@ impl<'a, 't> Compiler<'a, 't> {
         let name = self.objects.alloc(name.into());
         function.name = Some(name);
 
-        println!("---{}---", FunctionDisplay(&function, self.objects));
-        let _ = function.chunk.disassemble(self.objects);
+        if std::env::var("LOX_DUMP").is_ok() {
+            println!("---{}---", FunctionDisplay(&function, self.objects));
+            let _ = function.chunk.disassemble(self.objects);
+        }
 
         let function_obj = self.objects.alloc(function);
 

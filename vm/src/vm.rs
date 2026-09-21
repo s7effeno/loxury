@@ -39,6 +39,7 @@ pub struct Vm {
     objects: Heap,
     open_upvalues: Vec<GcHandle<ObjUpvalue>>,
     init_string: GcHandle<String>,
+    pub output: Vec<String>,
 }
 
 impl Default for Vm {
@@ -58,6 +59,7 @@ impl Vm {
             objects,
             open_upvalues: Vec::new(),
             init_string,
+            output: Vec::new(),
         };
         ret.define_native("clock", 0, |_| {
             Value::Number(UNIX_EPOCH.elapsed().unwrap().as_secs_f64())
@@ -172,6 +174,7 @@ impl Vm {
         // FIXME: check if needs optimization
         self.stack = ArrayVec::new();
         self.frames = ArrayVec::new();
+        self.output.clear();
 
         let function = Compiler::new(
             &mut Lexer::new(source).peekable(),
@@ -361,7 +364,7 @@ impl Vm {
                 }
                 OpCode::Print => {
                     let value = self.stack.last().unwrap();
-                    println!("{}", ValueDisplay(value, &self.objects));
+                    self.output.push(ValueDisplay(value, &self.objects).to_string());
                     self.stack.pop();
                 }
                 OpCode::Pop => {
