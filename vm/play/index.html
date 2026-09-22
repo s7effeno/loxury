@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>lox playground</title>
+<style>
+body { font-family: Georgia, serif; max-width: 860px; margin: 2.5em auto; padding: 0 1.2em; color: #3b2f2f; background: #faf6ef; }
+h1 { font-size: 1.6em; border-bottom: 1px solid #d8cfc0; padding-bottom: 0.3em; }
+#editor { display: flex; border: 1px solid #c9bfae; background: #fffdf8; }
+#gutter { padding: 0.5em 0.6em; text-align: right; color: #b3a48c; font-family: monospace; font-size: 0.95em; line-height: 1.5; white-space: pre; overflow: hidden; user-select: none; border-right: 1px solid #e5dccb; }
+#src { flex: 1; height: 300px; font-family: monospace; font-size: 0.95em; line-height: 1.5; border: 0; padding: 0.5em; box-sizing: border-box; background: transparent; color: #3b2f2f; resize: vertical; }
+#out { white-space: pre-wrap; background: #fffdf8; border: 1px solid #c9bfae; padding: 0.8em; min-height: 80px; }
+.err { color: #a00; }
+button, select { font-size: 0.95em; margin: 0.6em 0.6em 0.6em 0; padding: 0.25em 0.8em; background: #f3ecdd; border: 1px solid #c9bfae; color: #3b2f2f; }
+button:hover { background: #e9dfc9; }
+</style>
+</head>
+<body>
+<h1>lox playground</h1>
+<select id="examples"></select>
+<button id="run">Run</button>
+<div id="editor"><div id="gutter">1</div><textarea id="src" spellcheck="false"></textarea></div>
+<pre id="out"></pre>
+<script type="module">
+import init, { run_lox } from './pkg/vm.js';
+
+const EXAMPLES = {
+  hello: 'print "hello";',
+  fib: 'fun fib(n) {\n  if (n < 2) return n;\n  return fib(n - 2) + fib(n - 1);\n}\nprint fib(20);',
+  countdown: 'var n = 5;\nwhile (n > 0) {\n  print n;\n  n = n - 1;\n}\nprint "liftoff";',
+  counter: 'fun counter() {\n  var n = 0;\n  fun inc() {\n    n = n + 1;\n    return n;\n  }\n  return inc;\n}\nvar c = counter();\nprint c();\nprint c();\nprint c();',
+  trees: 'class Tree {\n  init(item, depth) {\n    this.item = item;\n    this.depth = depth;\n    if (depth > 0) {\n      var item2 = item + item;\n      depth = depth - 1;\n      this.left = Tree(item2 - 1, depth);\n      this.right = Tree(item2, depth);\n    } else {\n      this.left = nil;\n      this.right = nil;\n    }\n  }\n  check() {\n    if (this.left == nil) {\n      return this.item;\n    }\n    return this.item + this.left.check() - this.right.check();\n  }\n}\nprint Tree(0, 4).check();',
+  inheritance: 'class Animal {\n  init(name) {\n    this.name = name;\n  }\n  speak() {\n    print this.name + " makes a sound";\n  }\n}\nclass Dog < Animal {\n  speak() {\n    print this.name + " barks";\n  }\n}\nDog("rex").speak();\nAnimal("cat").speak();',
+  super: 'class A {\n  greet() {\n    return "hello from A";\n  }\n}\nclass B < A {\n  greet() {\n    print super.greet() + " (overridden)";\n  }\n}\nB().greet();\nvar s = "lox";\nprint s + " strings " + "concatenate";',
+  closures: 'fun adder(x) {\n  fun add(y) { return x + y; }\n  return add;\n}\nvar add3 = adder(3);\nprint add3(4);\nprint add3(10);',
+};
+
+const src = document.getElementById('src');
+const out = document.getElementById('out');
+const gutter = document.getElementById('gutter');
+const examples = document.getElementById('examples');
+for (const name of Object.keys(EXAMPLES)) {
+  const o = document.createElement('option');
+  o.value = o.textContent = name;
+  examples.appendChild(o);
+}
+
+function syncGutter() {
+  const n = src.value.split('\n').length;
+  let s = '';
+  for (let i = 1; i <= n; i++) s += i + '\n';
+  gutter.textContent = s;
+  gutter.scrollTop = src.scrollTop;
+}
+src.addEventListener('input', syncGutter);
+src.addEventListener('scroll', () => { gutter.scrollTop = src.scrollTop; });
+
+function load(name) {
+  src.value = EXAMPLES[name];
+  syncGutter();
+}
+examples.onchange = () => load(examples.value);
+load('hello');
+
+document.getElementById('run').onclick = () => {
+  const res = JSON.parse(run_lox(src.value));
+  out.textContent = res.output.join('\n');
+  out.className = res.ok ? '' : 'err';
+  if (!res.ok && res.error) out.textContent += (out.textContent ? '\n' : '') + res.error;
+};
+
+await init();
+</script>
+</body>
+</html>

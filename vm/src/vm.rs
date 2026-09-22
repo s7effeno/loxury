@@ -11,6 +11,7 @@ use crate::{ArrayVec, RunError};
 // use std::collections::HashMap;
 use fxhash::FxHashMap as HashMap;
 
+use std::io::{Stderr, Stdout, Write};
 use std::time::UNIX_EPOCH;
 
 const FRAMES_MAX: usize = 64;
@@ -31,7 +32,7 @@ impl CallFrame {
     }
 }
 
-pub struct Vm {
+pub struct Vm<W = Stdout, E = Stderr> {
     frames: ArrayVec<CallFrame, FRAMES_MAX>,
     stack: ArrayVec<Value, { 64 * 256 }>,
     // name -> value
@@ -39,17 +40,24 @@ pub struct Vm {
     objects: Heap,
     open_upvalues: Vec<GcHandle<ObjUpvalue>>,
     init_string: GcHandle<String>,
-    pub output: Vec<String>,
+    pub out: W,
+    pub err: E,
 }
 
-impl Default for Vm {
+impl<W: Write + Default, E: Write + Default> Default for Vm<W, E> {
     fn default() -> Self {
-        Self::new()
+        Self::with_outputs(W::default(), E::default())
     }
 }
 
-impl Vm {
+impl Vm<Stdout, Stderr> {
     pub fn new() -> Self {
+        Self::with_outputs(std::io::stdout(), std::io::stderr())
+    }
+}
+
+impl<W: Write, E: Write> Vm<W, E> {
+    pub fn with_outputs(out: W, err: E) -> Self {
         let mut objects = Heap::default();
         let init_string = objects.alloc("init".into());
         let mut ret = Self {
@@ -59,7 +67,8 @@ impl Vm {
             objects,
             open_upvalues: Vec::new(),
             init_string,
-            output: Vec::new(),
+            out,
+            err,
         };
         ret.define_native("clock", 0, |_| {
             Value::Number(UNIX_EPOCH.elapsed().unwrap().as_secs_f64())
@@ -174,21 +183,27 @@ impl Vm {
         // FIXME: check if needs optimization
         self.stack = ArrayVec::new();
         self.frames = ArrayVec::new();
-        self.output.clear();
 
-        let function = Compiler::new(
-            &mut Lexer::new(source).peekable(),
-            &mut self.objects,
-            FunctionKind::Script,
-        )
-        .compile()?;
+        let mut lexer = Lexer::new(source).peekable();
+        let function = {
+            let mut compiler = Compiler::new(
+                &mut lexer,
+                &mut self.objects,
+                FunctionKind::Script,
+                &mut self.err,
+            );
+            match compiler.compile() {
+                Ok(function) => function,
+                Err(()) => return Err(()),
+            }
+        };
         let function = self.alloc(function);
         let closure = self.alloc(Closure::new(function));
 
         self.frames.push(CallFrame::new(closure, 0));
         self.stack.push(Value::Closure(closure));
         self.execute().map_err(|e| {
-            println!("{e}");
+            let _ = writeln!(self.err, "{e}");
         })
     }
 
@@ -363,8 +378,8 @@ impl Vm {
                     }
                 }
                 OpCode::Print => {
-                    let value = self.stack.last().unwrap();
-                    self.output.push(ValueDisplay(value, &self.objects).to_string());
+                    let value = *self.stack.last().unwrap();
+                    let _ = writeln!(self.out, "{}", ValueDisplay(&value, &self.objects));
                     self.stack.pop();
                 }
                 OpCode::Pop => {

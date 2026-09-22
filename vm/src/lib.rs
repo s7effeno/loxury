@@ -4,6 +4,8 @@ mod gc;
 mod lex;
 mod location;
 pub mod vm;
+#[cfg(feature = "playground")]
+pub mod play;
 
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};

@@ -1,0 +1,30 @@
+name: playground
+on:
+  push:
+    branches: [master]
+    paths: [vm/**]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p vm --lib --release --target wasm32-unknown-unknown --features playground
+      - name: install wasm-bindgen
+        run: |
+          curl -sL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          echo "$PWD/wasm-bindgen-0.2.128-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+      - run: wasm-bindgen --target web --out-dir vm/play/pkg --no-typescript target/wasm32-unknown-unknown/release/vm.wasm
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: vm/play
+      - id: deploy
+        uses: actions/deploy-pages@v4

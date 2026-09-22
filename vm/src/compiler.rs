@@ -7,6 +7,7 @@ use crate::lex::{Lexer, Token, TokenKind};
 use crate::location::{AtCoords, AtCoordsOrEof, Coords};
 use crate::{ArrayVec, CompileError};
 
+use std::io::Write;
 use std::iter::Peekable;
 use std::mem;
 
@@ -130,22 +131,24 @@ impl Locals<'_> {
     }
 }
 
-struct Errors {
+struct Errors<'a, W: Write> {
     had_error: bool,
     panic_mode: bool,
+    err: &'a mut W,
 }
 
-impl Errors {
-    fn new() -> Self {
+impl<'a, W: Write> Errors<'a, W> {
+    fn new(err: &'a mut W) -> Self {
         Self {
             had_error: false,
             panic_mode: false,
+            err,
         }
     }
 
     fn report(&mut self, error: &AtCoordsOrEof<CompileError>) {
         self.had_error = true;
-        eprintln!("{error}");
+        let _ = writeln!(self.err, "{error}");
     }
 
     fn sync(&mut self, error: &AtCoordsOrEof<CompileError>) {
@@ -197,11 +200,11 @@ impl ClassCompiler {
     }
 }
 
-pub struct Compiler<'a, 't> {
+pub struct Compiler<'a, 't, W: Write> {
     lexer: &'a mut Peekable<Lexer<'t>>,
     objects: &'a mut Heap,
     frame: CompilationFrame<'a>,
-    errors: Errors,
+    errors: Errors<'a, W>,
     class_compiler : ClassCompiler,
 }
 
@@ -282,17 +285,18 @@ impl CompilationFrame<'_> {
     }
 }
 
-impl<'a, 't> Compiler<'a, 't> {
+impl<'a, 't, W: Write> Compiler<'a, 't, W> {
     pub fn new<'b>(
         lexer: &'b mut Peekable<Lexer<'t>>,
         objects: &'b mut Heap,
         function_kind: FunctionKind,
-    ) -> Compiler<'b, 't> {
+        err: &'b mut W,
+    ) -> Compiler<'b, 't, W> {
         Compiler {
             lexer,
             objects,
             frame: CompilationFrame::new(function_kind),
-            errors: Errors::new(),
+            errors: Errors::new(err),
             class_compiler: ClassCompiler::new()
         }
     }
